@@ -856,7 +856,7 @@ mod tests {
         };
         let _ = ctx.run(raw, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                let (rect, response) = ui.allocate_exact_size(egui::vec2(80.0, 24.0), egui::Sense::hover());
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(80.0, 24.0), egui::Sense::hover());
                 let shifted = rect.translate(egui::vec2(p.x - rect.center().x, p.y - rect.center().y));
                 let response = ui.interact(shifted, egui::Id::new("menu-title-test"), egui::Sense::hover());
                 title = Some(response);
