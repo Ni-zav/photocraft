@@ -1063,6 +1063,14 @@ fn blend_options(groups: bool) -> Vec<(BlendMode, &'static str)> {
     std::iter::once(BlendMode::PassThrough).filter(|_| groups).chain(BlendMode::LAYER_MODES).map(|m| (m, m.label())).collect()
 }
 
+/// A layer is visible in the Layers panel only when every ancestor group is expanded.
+fn layer_row_visible(doc: &photocraft_doc::Document, path: &[usize]) -> bool {
+    (1..path.len()).all(|n| match doc.layer_at(&path[..n]).map(|layer| &layer.content) {
+        Some(LayerContent::Group(group)) => group.expanded,
+        _ => true,
+    })
+}
+
 fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let Some(st) = app.session.active() else {
         empty(ui, "No document");
@@ -1171,7 +1179,10 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .auto_shrink([false, !fill])
         .show(ui, |ui| {
             let filter = app.ui.layer_filter.clone();
-            for (_, depth, l) in rows.iter().rev() {
+            for (path, depth, l) in rows.iter().rev() {
+                if !layer_row_visible(&doc, path) {
+                    continue;
+                }
                 // Select › Isolate Layers.
                 if !photocraft_engine::select_extra_cmds::isolation_shows(&doc, &isolated, l.id) {
                     continue;
@@ -1355,6 +1366,22 @@ fn layer_row(
         actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "visible": !l.visible})));
     }
     x += 28.0 + depth as f32 * 14.0;
+    let mut disclosure_clicked = false;
+    if let LayerContent::Group(group) = &l.content {
+        let disclosure = Rect::from_center_size(pos2(x + 6.0, rect.center().y), vec2(12.0, 18.0));
+        let disclosure_resp = ui.interact(disclosure, ui.id().with(("group-disclosure", l.id.0)), Sense::click());
+        icons::paint(ui, disclosure, if group.expanded { "chevron-down" } else { "chevron-right" }, 10.0, t.text_dim);
+        if disclosure_resp.clicked() {
+            disclosure_clicked = true;
+            let all_groups = ui.input(|i| i.modifiers.alt);
+            actions.push((
+                "layer.setProps".into(),
+                json!({"layer": l.id.0, "expanded": !group.expanded, "allGroups": all_groups}),
+            ));
+        }
+    }
+    // Reserve a disclosure column on every row so group and child thumbnails stay aligned.
+    x += 14.0;
     if l.clipped {
         painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, "↳", egui::FontId::proportional(13.0), t.text_faint);
         x += 12.0;
@@ -1435,7 +1462,7 @@ fn layer_row(
     });
     if let Some(p) = thumb_load {
         actions.push(("select.loadSelection".into(), p));
-    } else if resp.clicked() && !eye_resp.clicked() {
+    } else if resp.clicked() && !eye_resp.clicked() && !disclosure_clicked {
         let mode = select_mode(ui.input(|i| i.modifiers));
         actions.push(("layer.select".into(), json!({"layer": l.id.0, "mode": mode})));
         // Clicking a thumbnail picks what painting targets; adjustment/fill layers target their mask.
@@ -2179,5 +2206,34 @@ mod color_tests {
                 assert!((back[i] - c[i]).abs() <= 1.0 / 255.0, "{c:?} -> {back:?}");
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod group_disclosure_tests {
+    use super::*;
+
+    #[test]
+    fn collapsed_groups_hide_descendants_but_not_the_group_row() {
+        let child = photocraft_doc::Layer::group("Nested", vec![photocraft_doc::Layer::raster(
+            "Pixel",
+            photocraft_color::PixelFormat::rgba8(),
+        )]);
+        let mut group = photocraft_doc::Layer::group("Top", vec![child]);
+        let mut doc = photocraft_doc::Document::new(32, 32, photocraft_color::PixelFormat::rgba8());
+        if let LayerContent::Group(g) = &mut group.content {
+            g.expanded = false;
+        }
+        doc.layers.push(group);
+
+        assert!(layer_row_visible(&doc, &[0]));
+        assert!(!layer_row_visible(&doc, &[0, 0]));
+        assert!(!layer_row_visible(&doc, &[0, 0, 0]));
+
+        if let LayerContent::Group(g) = &mut doc.layers[0].content {
+            g.expanded = true;
+        }
+        assert!(layer_row_visible(&doc, &[0, 0]));
     }
 }
