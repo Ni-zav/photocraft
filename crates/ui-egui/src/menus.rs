@@ -738,6 +738,16 @@ fn switch_on_hover(ctx: &egui::Context, buttons: &[egui::Response]) {
 }
 
 fn render_level(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, clicked: &mut Option<String>) {
+    // Menu popups can be taller than the viewport. Keep each level on-screen and scroll it,
+    // matching egui's own bounded-popup pattern used by ComboBox.
+    let max_height = (ui.ctx().content_rect().height() - 32.0).max(120.0);
+    egui::ScrollArea::vertical()
+        .id_salt(("menu-level", depth))
+        .max_height(max_height)
+        .show(ui, |ui| render_level_rows(ui, items, depth, clicked));
+}
+
+fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, clicked: &mut Option<String>) {
     let t = crate::theme::Tokens::get(ui.ctx());
     if t.pro {
         // Spectrum/macOS menus: blue highlight row with white text.
@@ -910,6 +920,29 @@ mod tests {
             assert!(a.height() >= font + 8.0, "{theme:?}: item height {} for a {font} pt font", a.height());
             assert!(b.top() - a.top() >= font + 10.0, "{theme:?}: rows {} apart", b.top() - a.top());
         }
+    }
+
+    #[test]
+    fn menu_level_height_is_bounded_by_viewport() {
+        use egui_kittest::Harness;
+
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut harness = Harness::builder().with_size(egui::vec2(900.0, 240.0)).build_ui_state(|ui, app| menu_bar(app, ui), app);
+        PhotocraftApp::setup_context(&harness.ctx, crate::theme::ThemeKind::ALL[0]);
+        harness.run_steps(3);
+        // Opening a top-level menu with many entries must not grow its popup past the viewport.
+        use egui_kittest::kittest::Queryable;
+        harness.get_by_label("Filter").click();
+        harness.run_steps(3);
+        let viewport = harness.ctx.content_rect();
+        let max_bottom = harness
+            .ctx
+            .memory(|m| m.areas().visible_layer_ids())
+            .into_iter()
+            .filter_map(|id| harness.ctx.memory(|m| m.areas().area_rect(id)))
+            .map(|r| r.bottom())
+            .fold(viewport.top(), f32::max);
+        assert!(max_bottom <= viewport.bottom() + 1.0, "menu popup overflowed viewport: {max_bottom} > {}", viewport.bottom());
     }
 
     #[test]
