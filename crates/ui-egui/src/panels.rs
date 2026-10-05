@@ -1501,8 +1501,8 @@ mod layer_row_layout_tests {
         let mut width = 0.0;
         let max_width = 52.0;
         let raw = egui::RawInput::default();
-        let _ = ctx.run(raw, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = ctx.run_ui(raw, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let galley = truncated_layer_text(
                     ui.painter(),
                     "A very long layer name that must not run underneath fx",
