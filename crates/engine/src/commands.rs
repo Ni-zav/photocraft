@@ -463,13 +463,39 @@ fn build() -> Vec<CommandSpec> {
             "Layer Properties",
             [],
             None,
-            r##"{"layer":id?,"name":str?,"visible":bool?,"opacity":0..1?,"fill":0..1?,"blend":"Multiply|…"?,"clipped":bool?,"locked":bool?,"locks":{"transparency","pixels","position","artboard","all":bool}?,"channels":[bool,…]? (Advanced Blending: which colour channels blend, R G B / C M Y K / L a b)}"##,
+            r##"{"layer":id?,"name":str?,"visible":bool?,"opacity":0..1?,"fill":0..1?,"blend":"Multiply|…"?,"clipped":bool?,"expanded":bool? (groups),"allGroups":bool? (with expanded),"locked":bool?,"locks":{"transparency","pixels","position","artboard","all":bool}?,"channels":[bool,…]? (Advanced Blending: which colour channels blend, R G B / C M Y K / L a b)}"##,
             has_layer,
             |s, p| {
                 let id = layer_param(s, p)?;
                 let label = if p.get("visible").is_some() && p.as_object().is_some_and(|o| o.len() <= 2) { "Layer Visibility" } else { "Layer Properties" };
                 s.edit(label, |doc, _| {
+                    let expanded = p.get("expanded").and_then(Value::as_bool);
+                    let all_groups = p.get("allGroups").and_then(Value::as_bool).unwrap_or(false);
+                    if let Some(v) = expanded
+                        && all_groups
+                    {
+                        if !doc.layer(id).is_some_and(Layer::is_group) {
+                            return Err(bad("layer.setProps", "expanded is only valid for group layers"));
+                        }
+                        fn set_all(layers: &mut [Layer], expanded: bool) {
+                            for layer in layers {
+                                if let LayerContent::Group(group) = &mut layer.content {
+                                    group.expanded = expanded;
+                                    set_all(&mut group.children, expanded);
+                                }
+                            }
+                        }
+                        set_all(&mut doc.layers, v);
+                    }
                     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+                    if let Some(v) = expanded
+                        && !all_groups
+                    {
+                        let LayerContent::Group(group) = &mut l.content else {
+                            return Err(bad("layer.setProps", "expanded is only valid for group layers"));
+                        };
+                        group.expanded = v;
+                    }
                     if let Some(v) = p.get("name").and_then(Value::as_str) {
                         l.name = v.to_string();
                     }
