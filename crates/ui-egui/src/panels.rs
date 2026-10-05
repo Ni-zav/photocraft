@@ -2218,10 +2218,15 @@ mod group_disclosure_tests {
     fn collapsed_groups_hide_descendants_but_not_the_group_row() {
         let child = photocraft_doc::Layer::group("Nested", vec![photocraft_doc::Layer::raster(
             "Pixel",
-            photocraft_color::PixelFormat::rgba8(),
+            photocraft_color::PixelFormat::RGBA8,
         )]);
         let mut group = photocraft_doc::Layer::group("Top", vec![child]);
-        let mut doc = photocraft_doc::Document::new(32, 32, photocraft_color::PixelFormat::rgba8());
+        let mut doc = photocraft_doc::Document::new(
+            "groups",
+            photocraft_doc::Size::new(32, 32),
+            photocraft_color::ColorMode::Rgb,
+            photocraft_color::SampleType::U8,
+        );
         if let LayerContent::Group(g) = &mut group.content {
             g.expanded = false;
         }
