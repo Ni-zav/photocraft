@@ -1284,6 +1284,20 @@ fn select_mode(m: egui::Modifiers) -> &'static str {
     }
 }
 
+fn truncated_layer_text(
+    painter: &egui::Painter,
+    text: &str,
+    font: egui::FontId,
+    color: Color32,
+    italics: bool,
+    max_width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(text, 0.0, egui::TextFormat { font_id: font, color, italics, ..Default::default() });
+    job.wrap = egui::text::TextWrapping::truncate_at_width(max_width.max(0.0));
+    painter.layout_job(job)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn layer_row(
     app: &mut PhotocraftApp,
@@ -1364,11 +1378,38 @@ fn layer_row(
     }
     let name_color = if l.visible { t.text } else { t.text_faint };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
+    let locked = l.locks.transparency || l.locks.position || l.locks.all;
+
+    // Reserve the right-hand indicators before laying out the name. Previously the name always
+    // used its natural width and fx / blend / lock / link were painted on top of it.
+    let mut indicator_right = rect.right() - 7.0;
+    let lock_center = locked.then(|| {
+        let p = indicator_right - 7.0;
+        indicator_right -= 18.0;
+        p
+    });
+    let link_center = l.link_group.is_some().then(|| {
+        let p = indicator_right - 7.0;
+        indicator_right -= 18.0;
+        p
+    });
+    let fx_right = (!l.effects.items.is_empty()).then(|| {
+        let p = indicator_right;
+        indicator_right -= 22.0;
+        p
+    });
+    let blend = (l.blend != BlendMode::Normal && l.blend != BlendMode::PassThrough).then(|| {
+        let font = egui::FontId::proportional(10.5);
+        let width = painter.layout_no_wrap(l.blend.label().to_owned(), font.clone(), t.text_faint).size().x.min(72.0);
+        let p = indicator_right;
+        indicator_right -= width + 6.0;
+        (p, font)
+    });
+    let name_width = (indicator_right - x - 4.0).max(0.0);
+
     // Photoshop before 2026 set the Background layer's name in italics; 2026 sets it upright.
     let italic = !t.pro && l.name == "Background" && l.locks.transparency;
-    let mut job = egui::text::LayoutJob::default();
-    job.append(&l.name, 0.0, egui::TextFormat { font_id: font, color: name_color, italics: italic, ..Default::default() });
-    let galley = painter.layout_job(job);
+    let galley = truncated_layer_text(&painter, &l.name, font, name_color, italic, name_width);
     // Photoshop rows show only the name; the kind sub-label is a Studio-theme addition.
     let is_pixel = t.pro || matches!(l.content, LayerContent::Raster(_));
     let text_pos = pos2(x, rect.center().y - galley.size().y / 2.0 - if is_pixel { 0.0 } else { 7.0 });
@@ -1379,21 +1420,20 @@ fn layer_row(
             LayerContent::Group(g) => format!("Group · {} layers", g.children.len()),
             other => other.kind_name().to_string(),
         };
-        painter.text(pos2(x, rect.center().y + 8.0), Align2::LEFT_CENTER, sub, egui::FontId::proportional(11.0), t.text_faint);
+        let sub_galley = truncated_layer_text(&painter, &sub, egui::FontId::proportional(11.0), t.text_faint, false, name_width);
+        painter.galley(pos2(x, rect.center().y + 8.0 - sub_galley.size().y / 2.0), sub_galley, t.text_faint);
     }
-    if !l.effects.items.is_empty() {
-        painter.text(pos2(rect.right() - 34.0, rect.center().y), Align2::RIGHT_CENTER, "fx", theme::semibold(11.0), t.text_dim);
+    if let Some(right) = blend.map(|x| x.0) {
+        painter.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, l.blend.label(), egui::FontId::proportional(10.5), t.text_faint);
     }
-    if l.blend != BlendMode::Normal && l.blend != BlendMode::PassThrough {
-        painter.text(pos2(rect.right() - 30.0, rect.center().y), Align2::RIGHT_CENTER, l.blend.label(), egui::FontId::proportional(10.5), t.text_faint);
+    if let Some(right) = fx_right {
+        painter.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, "fx", theme::semibold(11.0), t.text_dim);
     }
-    let locked = l.locks.transparency || l.locks.position || l.locks.all;
-    if locked {
-        icons::paint(ui, Rect::from_center_size(pos2(rect.right() - 14.0, rect.center().y), vec2(14.0, 14.0)), "lock", 12.0, t.text_faint);
+    if let Some(cx) = link_center {
+        icons::paint(ui, Rect::from_center_size(pos2(cx, rect.center().y), vec2(14.0, 14.0)), "link", 12.0, t.text_faint);
     }
-    if l.link_group.is_some() {
-        let x = rect.right() - if locked { 30.0 } else { 14.0 };
-        icons::paint(ui, Rect::from_center_size(pos2(x, rect.center().y), vec2(14.0, 14.0)), "link", 12.0, t.text_faint);
+    if let Some(cx) = lock_center {
+        icons::paint(ui, Rect::from_center_size(pos2(cx, rect.center().y), vec2(14.0, 14.0)), "lock", 12.0, t.text_faint);
     }
     // ⌘-click a layer or mask thumbnail loads its transparency / mask as a selection (⇧ add,
     // ⌥ subtract, ⇧⌥ intersect) instead of changing the layer selection.
@@ -1425,7 +1465,7 @@ fn layer_row(
         ctx.data_mut(|d| d.insert_temp(rename_id, l.name.clone()));
     }
     if let Some(mut text) = ctx.data(|d| d.get_temp::<String>(rename_id)) {
-        let edit_rect = Rect::from_min_max(pos2(x - 3.0, rect.center().y - 11.0), pos2(rect.right() - 36.0, rect.center().y + 11.0));
+        let edit_rect = Rect::from_min_max(pos2(x - 3.0, rect.center().y - 11.0), pos2(indicator_right.max(x + 16.0), rect.center().y + 11.0));
         let te = ui.put(edit_rect, egui::TextEdit::singleline(&mut text).font(egui::FontId::proportional(12.5)));
         te.request_focus();
         let (enter, esc) = ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
@@ -1448,6 +1488,36 @@ fn layer_row(
             ui.ctx().data_mut(|d| d.insert_temp(rename_id, l.name.clone()));
         }
     });
+}
+
+#[cfg(test)]
+mod layer_row_layout_tests {
+    use super::*;
+
+    #[test]
+    fn long_layer_names_elide_to_reserved_width() {
+        let ctx = egui::Context::default();
+        let mut elided = false;
+        let mut width = 0.0;
+        let max_width = 52.0;
+        let raw = egui::RawInput::default();
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let galley = truncated_layer_text(
+                    ui.painter(),
+                    "A very long layer name that must not run underneath fx",
+                    egui::FontId::proportional(12.0),
+                    Color32::WHITE,
+                    false,
+                    max_width,
+                );
+                elided = galley.elided;
+                width = galley.size().x;
+            });
+        });
+        assert!(elided);
+        assert!(width <= max_width + 1.0, "{width} > {max_width}");
+    }
 }
 
 fn draw_layer_thumb(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &egui::Ui, doc: &photocraft_doc::Document, l: &Layer, rect: Rect, selected: bool) {
