@@ -70,6 +70,34 @@ fn layer_lifecycle_with_undo() {
 }
 
 #[test]
+fn layer_group_expansion_persists_and_can_toggle_all_groups() {
+    let mut s = session_with_doc();
+    let inner = Layer::group("Inner", vec![]);
+    let inner_id = inner.id;
+    let outer = Layer::group("Outer", vec![inner]);
+    let outer_id = outer.id;
+    s.edit("Setup groups", |doc, active| {
+        doc.layers.push(outer);
+        *active = Some(outer_id);
+        Ok(())
+    })
+    .unwrap();
+
+    s.execute("layer.setProps", json!({"layer": outer_id.0, "expanded": false})).unwrap();
+    let outer = s.active().unwrap().doc.layer(outer_id).unwrap();
+    assert!(matches!(&outer.content, LayerContent::Group(g) if !g.expanded));
+
+    s.execute("layer.setProps", json!({"layer": outer_id.0, "expanded": true, "allGroups": true})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    assert!(matches!(&doc.layer(outer_id).unwrap().content, LayerContent::Group(g) if g.expanded));
+    assert!(matches!(&doc.layer(inner_id).unwrap().content, LayerContent::Group(g) if g.expanded));
+
+    let pixel = doc.layers[0].id;
+    let err = s.execute("layer.setProps", json!({"layer": pixel.0, "expanded": false})).unwrap_err();
+    assert!(matches!(err, EngineError::BadParams { .. }), "{err}");
+}
+
+#[test]
 fn bad_blend_mode_is_a_param_error() {
     let mut s = session_with_doc();
     let e = s.execute("layer.setProps", json!({"blend": "sparkle"})).unwrap_err();
