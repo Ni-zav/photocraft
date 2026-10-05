@@ -939,7 +939,7 @@ mod tests {
             .ctx
             .memory(|m| m.areas().visible_layer_ids())
             .into_iter()
-            .filter_map(|id| harness.ctx.memory(|m| m.areas().area_rect(id)))
+            .filter_map(|layer| harness.ctx.memory(|m| m.area_rect(layer.id)))
             .map(|r| r.bottom())
             .fold(viewport.top(), f32::max);
         assert!(max_bottom <= viewport.bottom() + 1.0, "menu popup overflowed viewport: {max_bottom} > {}", viewport.bottom());
