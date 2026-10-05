@@ -155,50 +155,10 @@ pub fn clipboard_keys(ctx: &egui::Context, typing: bool, raw: &mut egui::RawInpu
     raw.events = out;
 }
 
-pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    // Liquify is a full-window custom dialog with focusable sliders. egui can therefore claim
-    // keyboard input before the distortion-mode handler below runs. Give Liquify's local
-    // shortcuts first refusal (Undo, brush size, tool keys), but never steal keys from text edits.
-    if app.distort.liquify.is_some() && !ctx.text_edit_focused() {
-        crate::liquify_ui::keys(app, ctx);
-    }
-    if ctx.egui_wants_keyboard_input() || !app.ui.dialogs.is_empty() || app.discard.is_some() {
-        // Dialogs and focused sliders keep canvas zoom; a focused text field keeps its keys.
-        if !ctx.text_edit_focused() {
-            nav_keys(app, ctx);
-        }
-        return;
-    }
-    // Liquify / Puppet Warp / Perspective Warp: ↩ commits, Esc cancels.
-    if crate::distort_ui::keys(app, ctx) {
-        return;
-    }
-    // Free Transform: ↩ commits, Esc cancels.
-    if app.ui.transform.is_some() {
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
-            crate::transform_tool::commit(app);
-            return;
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-            crate::transform_tool::cancel(app);
-            return;
-        }
-    }
-    // Pen path in progress: ↩ finishes (open path), Esc cancels.
-    if app.ui.pen.is_some() {
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
-            crate::vector_ui::pen_commit(app, false);
-            return;
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-            app.ui.pen = None;
-            return;
-        }
-    }
-    // Inline type editing eats text and navigation keys; ⌘-shortcuts still reach the menus.
-    let editing = crate::type_tool::handle_keys(app, ctx);
-    // Registry + UI command shortcuts, most-modifiers first so ⇧⌘Z wins over ⌘Z.
-    // Edit › Keyboard Shortcuts overrides replace the defaults (and can bind any menu item).
+/// Dispatch shortcuts attached to menu/command entries. Keeping this separate from the
+/// single-key tool bindings lets menu shortcuts stay global while a non-text panel control
+/// (slider, dropdown, etc.) owns egui keyboard focus.
+fn command_keys(app: &mut PhotocraftApp, ctx: &egui::Context, editing: bool) -> bool {
     let prefs = app.session.prefs();
     let mut all: Vec<(String, KeyboardShortcut)> = crate::menus::UI_COMMANDS
         .iter()
@@ -233,8 +193,67 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     app.ui.status = e;
                 }
             }
+            return true;
+        }
+    }
+    false
+}
+
+pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    // Liquify is a full-window custom dialog with focusable sliders. egui can therefore claim
+    // keyboard input before the distortion-mode handler below runs. Give Liquify's local
+    // shortcuts first refusal (Undo, brush size, tool keys), but never steal keys from text edits.
+    if app.distort.liquify.is_some() && !ctx.text_edit_focused() {
+        crate::liquify_ui::keys(app, ctx);
+    }
+    // Modal dialogs keep their existing narrow shortcut surface: only canvas navigation.
+    if !app.ui.dialogs.is_empty() || app.discard.is_some() {
+        if !ctx.text_edit_focused() {
+            nav_keys(app, ctx);
+        }
+        return;
+    }
+    if ctx.egui_wants_keyboard_input() {
+        // Panel controls such as sliders and dropdowns may own keyboard focus, but Photoshop-style
+        // menu shortcuts are still global. Text edits are the exception: their editing keys stay
+        // local. Single-key tool bindings remain below this focus gate.
+        if !ctx.text_edit_focused() {
+            command_keys(app, ctx, false);
+        }
+        return;
+    }
+    // Liquify / Puppet Warp / Perspective Warp: ↩ commits, Esc cancels.
+    if crate::distort_ui::keys(app, ctx) {
+        return;
+    }
+    // Free Transform: ↩ commits, Esc cancels.
+    if app.ui.transform.is_some() {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            crate::transform_tool::commit(app);
             return;
         }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            crate::transform_tool::cancel(app);
+            return;
+        }
+    }
+    // Pen path in progress: ↩ finishes (open path), Esc cancels.
+    if app.ui.pen.is_some() {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            crate::vector_ui::pen_commit(app, false);
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            app.ui.pen = None;
+            return;
+        }
+    }
+    // Inline type editing eats text and navigation keys; ⌘-shortcuts still reach the menus.
+    let editing = crate::type_tool::handle_keys(app, ctx);
+    // Registry + UI command shortcuts, most-modifiers first so ⇧⌘Z wins over ⌘Z.
+    // Edit › Keyboard Shortcuts overrides replace the defaults (and can bind any menu item).
+    if command_keys(app, ctx, editing) {
+        return;
     }
     if editing {
         return;
@@ -364,6 +383,31 @@ mod tests {
         let mut r = raw(vec![egui::Event::Paste("x".into())], Modifiers::COMMAND);
         clipboard_keys(&ctx, true, &mut r);
         assert!(matches!(r.events.as_slice(), [_, egui::Event::Paste(_)]));
+    }
+
+    #[test]
+    fn panel_focus_does_not_block_global_menu_shortcuts() {
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        assert!(app.ui.panels.layers);
+
+        let raw = egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: Key::F7,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw, |ctx| {
+            ctx.memory_mut(|m| m.request_focus(egui::Id::new("focused-panel-control")));
+            assert!(ctx.egui_wants_keyboard_input());
+            handle(&mut app, ctx);
+        });
+
+        assert!(!app.ui.panels.layers, "F7 should still reach Window › Layers while a panel control has focus");
     }
 
     #[test]
