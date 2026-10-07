@@ -334,10 +334,7 @@ fn stack_mode_rejects_sources_without_visible_layers() {
         let fmt = doc.pixel_format();
         let mut child = Layer::raster("hidden", fmt);
         child.visible = false;
-        let group = Layer::new(
-            "stack",
-            LayerContent::Group(photocraft_doc::Group { children: vec![child], expanded: true, artboard: None }),
-        );
+        let group = Layer::new("stack", LayerContent::Group(photocraft_doc::Group { children: vec![child], expanded: true, artboard: None }));
         let smart = crate::smart_cmds::layer_to_smart(doc, &group)?;
         let id = smart.id;
         doc.layers = vec![smart];
