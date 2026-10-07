@@ -130,7 +130,10 @@ pub(crate) fn rect_param(p: &Value) -> Option<Rect> {
     };
     if let Some(a) = p.get("rect").and_then(Value::as_array).filter(|a| a.len() == 4) {
         let v: Vec<i32> = a.iter().filter_map(f).collect();
-        return (v.len() == 4).then(|| rect(v[0], v[1], v[2], v[3])).flatten();
+        if v.len() == 4 {
+            return rect(v[0], v[1], v[2], v[3]);
+        }
+        return None;
     }
     rect(f(p.get("x")?)?, f(p.get("y")?)?, f(p.get("width")?)?, f(p.get("height")?)?)
 }
