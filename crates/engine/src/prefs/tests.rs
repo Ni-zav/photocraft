@@ -143,6 +143,19 @@ fn keyboard_shortcuts_reassign_and_reset() {
     assert_eq!(s.prefs().shortcut("edit.fill", None), Some("Cmd+Z"));
     assert_eq!(s.prefs().shortcut("edit.undo", undo), None);
     assert!(r["conflicts"].as_array().unwrap().is_empty());
+    // A single bulk set that names the same shortcut twice still leaves one owner.
+    s.execute("edit.keyboardShortcuts", json!({"reset": true})).unwrap();
+    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z", "edit.fill": "Cmd+Z"}})).unwrap();
+    let owners = [
+        s.prefs().shortcut("edit.undo", undo),
+        s.prefs().shortcut("edit.fill", None),
+    ]
+    .into_iter()
+    .filter(|sc| *sc == Some("Cmd+Z"))
+    .count();
+    assert_eq!(owners, 1, "bulk conflict should leave exactly one shortcut owner");
+    assert!(r["conflicts"].as_array().unwrap().is_empty());
+
     // Keeping the duplicate reports a conflict.
     let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z"}, "removeConflicts": false})).unwrap();
     assert_eq!(r["conflicts"][0]["shortcut"], "Cmd+Z");
