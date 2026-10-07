@@ -143,19 +143,6 @@ fn keyboard_shortcuts_reassign_and_reset() {
     assert_eq!(s.prefs().shortcut("edit.fill", None), Some("Cmd+Z"));
     assert_eq!(s.prefs().shortcut("edit.undo", undo), None);
     assert!(r["conflicts"].as_array().unwrap().is_empty());
-    // A single bulk set that names the same shortcut twice still leaves one owner.
-    s.execute("edit.keyboardShortcuts", json!({"reset": true})).unwrap();
-    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z", "edit.fill": "Cmd+Z"}})).unwrap();
-    let owners = [
-        s.prefs().shortcut("edit.undo", undo),
-        s.prefs().shortcut("edit.fill", None),
-    ]
-    .into_iter()
-    .filter(|sc| *sc == Some("Cmd+Z"))
-    .count();
-    assert_eq!(owners, 1, "bulk conflict should leave exactly one shortcut owner");
-    assert!(r["conflicts"].as_array().unwrap().is_empty());
-
     // Keeping the duplicate reports a conflict.
     let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z"}, "removeConflicts": false})).unwrap();
     assert_eq!(r["conflicts"][0]["shortcut"], "Cmd+Z");
@@ -166,6 +153,18 @@ fn keyboard_shortcuts_reassign_and_reset() {
     // Listing with a filter.
     let r = s.execute("edit.keyboardShortcuts", json!({"filter": "gaussian"})).unwrap();
     assert!(r["commands"].as_array().unwrap().iter().any(|c| c["id"] == "filter.blur.gaussianBlur"));
+}
+
+#[test]
+fn keyboard_shortcuts_bulk_conflict_keeps_one_owner() {
+    let mut s = session();
+    let undo = crate::commands::find("edit.undo").unwrap().shortcut;
+    // A single bulk set that names the same shortcut twice still leaves one owner.
+    s.execute("edit.keyboardShortcuts", json!({"reset": true})).unwrap();
+    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z", "edit.fill": "Cmd+Z"}})).unwrap();
+    let owners = [s.prefs().shortcut("edit.undo", undo), s.prefs().shortcut("edit.fill", None)].into_iter().filter(|sc| *sc == Some("Cmd+Z")).count();
+    assert_eq!(owners, 1, "bulk conflict should leave exactly one shortcut owner");
+    assert!(r["conflicts"].as_array().unwrap().is_empty());
 }
 
 /// #249: temporary tools (held keys) and the fill / colour keys are bindable like commands.
