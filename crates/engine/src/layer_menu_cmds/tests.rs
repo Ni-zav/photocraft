@@ -329,25 +329,24 @@ fn stack_modes_render_from_the_nested_layers() {
 
 #[test]
 fn stack_mode_rejects_sources_without_visible_layers() {
-    let mut s = session(8, "rgb");
-    s.edit("hidden stack", |doc, active| {
-        let fmt = doc.pixel_format();
-        let mut child = Layer::raster("hidden", fmt);
-        child.visible = false;
-        let group = Layer::new("stack", LayerContent::Group(photocraft_doc::Group { children: vec![child], expanded: true, artboard: None }));
-        let smart = crate::smart_cmds::layer_to_smart(doc, &group)?;
-        let id = smart.id;
-        doc.layers = vec![smart];
-        *active = Some(id);
-        Ok(())
-    })
-    .unwrap();
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [0.4, 0.4, 0.4, 1.0]);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("layer.smartObjects.editContents", json!({})).unwrap();
+        let ids: Vec<u64> = doc(&s).layers.iter().map(|layer| layer.id.0).collect();
+        for id in ids {
+            s.execute("layer.hideLayers", json!({"layer": id})).unwrap();
+        }
+        s.execute("layer.smartObjects.saveContents", json!({})).unwrap();
+        s.execute("file.close", json!({})).unwrap();
 
-    let err = s.execute("layer.smartObjects.stackMode.mean", json!({})).unwrap_err();
-    assert!(err.to_string().contains("no visible layers"), "{err}");
-    match &active(&s).content {
-        LayerContent::Smart(sm) => assert_eq!(sm.stack_mode, None, "failed edit must roll back"),
-        _ => panic!(),
+        let err = s.execute("layer.smartObjects.stackMode.mean", json!({})).unwrap_err();
+        assert!(err.to_string().contains("no visible layers"), "{err}");
+        match &active(&s).content {
+            LayerContent::Smart(sm) => assert_eq!(sm.stack_mode, None, "failed edit must roll back"),
+            _ => panic!(),
+        }
     }
 }
 
