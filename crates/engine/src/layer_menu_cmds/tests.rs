@@ -328,6 +328,33 @@ fn stack_modes_render_from_the_nested_layers() {
 }
 
 #[test]
+fn stack_mode_rejects_sources_without_visible_layers() {
+    let mut s = session(8, "rgb");
+    s.edit("hidden stack", |doc, active| {
+        let fmt = doc.pixel_format();
+        let mut child = Layer::raster("hidden", fmt);
+        child.visible = false;
+        let group = Layer::new(
+            "stack",
+            LayerContent::Group(photocraft_doc::Group { children: vec![child], expanded: true, artboard: None }),
+        );
+        let smart = crate::smart_cmds::layer_to_smart(doc, &group)?;
+        let id = smart.id;
+        doc.layers = vec![smart];
+        *active = Some(id);
+        Ok(())
+    })
+    .unwrap();
+
+    let err = s.execute("layer.smartObjects.stackMode.mean", json!({})).unwrap_err();
+    assert!(err.to_string().contains("no visible layers"), "{err}");
+    match &active(&s).content {
+        LayerContent::Smart(sm) => assert_eq!(sm.stack_mode, None, "failed edit must roll back"),
+        _ => panic!(),
+    }
+}
+
+#[test]
 fn reveal_in_finder_dry_run_and_enabled() {
     let mut s = session(8, "rgb");
     assert!(!s.is_enabled("layer.smartObjects.revealInFinder"));
