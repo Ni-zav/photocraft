@@ -290,6 +290,9 @@ fn from_guides(s: &mut Session) -> Result<Value> {
 
 fn set_slice(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "slice.set";
+    if ["rect", "x", "y", "width", "height"].iter().any(|key| p.get(key).is_some()) && rect_param(p).is_none() {
+        return Err(bad(cmd, "give a finite rectangle with positive dimensions and representable corners"));
+    }
     let id = target(s, p, cmd, true)?;
     let coalesce_into_promote = s.active().is_some_and(|d| d.history.undo_label() == Some("Promote to User Slice")) && p.get("number").is_some();
     let label = "Slice Options";
