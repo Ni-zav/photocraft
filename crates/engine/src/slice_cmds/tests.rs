@@ -56,6 +56,11 @@ fn rect_param_rejects_corner_overflow() {
     assert_eq!(rect_param(&json!({"x": 1, "y": 2, "width": 3, "height": 4})), Some(Rect::new(1, 2, 4, 6)));
     assert_eq!(rect_param(&json!({"rect": [i32::MAX, 0, 1, 1]})), None);
     assert_eq!(rect_param(&json!({"x": 0, "y": i32::MAX, "width": 1, "height": 1})), None);
+
+    let mut s = session(8);
+    assert!(s.execute("slice.new", json!({"rect": [i32::MAX, 0, 1, 1]})).is_err());
+    let id = s.execute("slice.new", json!({"rect": [1, 1, 8, 8]})).unwrap()["slice"].as_u64().unwrap();
+    assert!(s.execute("slice.set", json!({"slice": id, "rect": [0, i32::MAX, 1, 1]})).is_err());
 }
 
 #[test]
