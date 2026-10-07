@@ -122,15 +122,17 @@ pub(crate) fn refresh(s: &mut Session) {
 
 pub(crate) fn rect_param(p: &Value) -> Option<Rect> {
     let f = |v: &Value| v.as_f64().filter(|x| x.is_finite()).map(|x| x.round() as i32);
+    let rect = |x: i32, y: i32, w: i32, h: i32| {
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        Some(Rect::new(x, y, x.checked_add(w)?, y.checked_add(h)?))
+    };
     if let Some(a) = p.get("rect").and_then(Value::as_array).filter(|a| a.len() == 4) {
         let v: Vec<i32> = a.iter().filter_map(f).collect();
-        if v.len() == 4 && v[2] > 0 && v[3] > 0 {
-            return Some(Rect::new(v[0], v[1], v[0] + v[2], v[1] + v[3]));
-        }
-        return None;
+        return (v.len() == 4).then(|| rect(v[0], v[1], v[2], v[3])).flatten();
     }
-    let (x, y, w, h) = (f(p.get("x")?)?, f(p.get("y")?)?, f(p.get("width")?)?, f(p.get("height")?)?);
-    (w > 0 && h > 0).then(|| Rect::new(x, y, x + w, y + h))
+    rect(f(p.get("x")?)?, f(p.get("y")?)?, f(p.get("width")?)?, f(p.get("height")?)?)
 }
 
 fn hex_color(s: &str) -> Option<[u8; 4]> {
