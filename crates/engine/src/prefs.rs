@@ -1434,6 +1434,10 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         if p.get("removeConflicts").and_then(Value::as_bool).unwrap_or(true) {
             for (id, v) in m {
                 let Some(sc) = v.as_str().and_then(normalize_shortcut) else { continue };
+                // Reassert this explicit assignment before taking the shortcut from its old
+                // owner. When a bulk set assigns one shortcut more than once, the later entry
+                // wins instead of each entry clearing the other.
+                next.set(&format!("shortcuts.{id}"), v.clone()).map_err(|e| bad(cmd, e))?;
                 for (c, def) in bindable() {
                     if c != id && next.shortcut(c, def).and_then(normalize_shortcut).as_deref() == Some(sc.as_str()) {
                         next.shortcuts.insert(c.to_string(), String::new());
