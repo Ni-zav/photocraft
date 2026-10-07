@@ -187,12 +187,7 @@ fn data_set_index(fields: &Map<String, Value>, len: usize) -> usize {
     if len == 0 {
         return 0;
     }
-    fields
-        .get("__cur")
-        .and_then(Value::as_u64)
-        .and_then(|v| usize::try_from(v).ok())
-        .filter(|&i| i < len)
-        .unwrap_or(0)
+    fields.get("__cur").and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok()).filter(|&i| i < len).unwrap_or(0)
 }
 
 fn data_sets_page(ui: &mut egui::Ui, _t: &Tokens, state: &mut Value, fields: &mut Map<String, Value>) {

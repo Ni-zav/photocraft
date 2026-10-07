@@ -28,18 +28,16 @@ fn app_with_variables_dialog(cur: u64) -> PhotocraftApp {
 }
 
 fn harness(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(
-            |ui, app: &mut PhotocraftApp| {
-                let ctx = ui.ctx().clone();
-                if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                    return;
-                }
-                photocraft_ui_egui::dialogs::show(app, &ctx);
-            },
-            app,
-        );
+    let mut h = Harness::builder().with_size(egui::vec2(900.0, 700.0)).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let ctx = ui.ctx().clone();
+            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
+            photocraft_ui_egui::dialogs::show(app, &ctx);
+        },
+        app,
+    );
     PhotocraftApp::setup_context(&h.ctx, photocraft_ui_egui::theme::ThemeKind::ALL[0]);
     h.run_steps(3);
     h
