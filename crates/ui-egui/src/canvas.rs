@@ -971,10 +971,7 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
 /// dimensions are in downsampled pixels, so pan offsets also need dividing by `factor`.
 fn filter_preview_view(source_size: [u32; 2], result_size: [u32; 2], center: [f32; 2], factor: u32) -> [f32; 2] {
     let k = factor.max(1) as f32;
-    [
-        (center[0] - source_size[0] as f32 * 0.5) / k + result_size[0] as f32 * 0.5,
-        (center[1] - source_size[1] as f32 * 0.5) / k + result_size[1] as f32 * 0.5,
-    ]
+    [(center[0] - source_size[0] as f32 * 0.5) / k + result_size[0] as f32 * 0.5, (center[1] - source_size[1] as f32 * 0.5) / k + result_size[1] as f32 * 0.5]
 }
 
 /// CPU fallback for filter previews, including arbitrary rotation. The filter engine
@@ -1816,11 +1813,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // width/height or centre can make the entire preview appear blank (#1436).
         let filter_key = doc.id.0 ^ (1u64 << 61);
         let result_size = if key == filter_key {
-            app.filter_preview
-                .as_ref()
-                .filter(|p| p.doc == doc.id)
-                .and_then(|p| p.result.as_ref())
-                .map(|r| [r.size.width, r.size.height])
+            app.filter_preview.as_ref().filter(|p| p.doc == doc.id).and_then(|p| p.result.as_ref()).map(|r| [r.size.width, r.size.height])
         } else {
             None
         };
