@@ -1754,7 +1754,7 @@ fn layer_row(
     // Photoshop's default (medium) thumbnails: 32 pt rows.
     let row_h = if t.pro { 32.0 } else { 46.0 };
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
-    layer_drag_and_drop(ctx, ui, l, rect, &resp, actions);
+    layer_drag_and_drop(app, ctx, ui, l, rect, &resp, actions);
     if resp.drag_started() {
         crate::layer_transfer::begin_from_panel(app, ctx, l.id);
     }
@@ -2482,9 +2482,32 @@ fn brush_preset_chip(
         .and_then(|r| r.inner)
 }
 
-/// Drag a layer row to reorder: drop on the upper/lower half to place above/below, or on the middle
-/// of a group to move into it. One `layer.moveTo` command (one undo step).
-fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect, resp: &egui::Response, actions: &mut Vec<(String, Value)>) {
+/// A drag from within a multi-selection moves the whole selection, not only the grabbed
+/// row. Dragging an unselected row keeps the existing single-layer behavior. Dropping a
+/// selection on one of its own rows is a silent no-op (`None`), like dropping a single row on
+/// itself.
+fn layer_drop_payload(dragged: u64, target: LayerId, position: &str, selected: &[LayerId]) -> Option<Value> {
+    if selected.len() > 1 && selected.contains(&LayerId(dragged)) {
+        if selected.contains(&target) {
+            return None;
+        }
+        Some(json!({"layers": selected.iter().map(|id| id.0).collect::<Vec<_>>(), "target": target.0, "position": position}))
+    } else {
+        Some(json!({"layer": dragged, "target": target.0, "position": position}))
+    }
+}
+
+/// Drag a layer row to reorder: drop above, below, or inside an existing group.
+/// Multi-layer moves are atomic (one undo step), using the engine's stable document order.
+fn layer_drag_and_drop(
+    app: &PhotocraftApp,
+    ctx: &egui::Context,
+    ui: &egui::Ui,
+    l: &Layer,
+    rect: Rect,
+    resp: &egui::Response,
+    actions: &mut Vec<(String, Value)>,
+) {
     let t = Tokens::get(ctx);
     let key = egui::Id::new("layer-drag");
     if resp.drag_started() {
@@ -2504,6 +2527,7 @@ fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect
     if !rect.contains(p) {
         return;
     }
+    let selected = app.session.active().map(|st| st.selected_layers()).unwrap_or_default();
     let f = (p.y - rect.top()) / rect.height();
     let position = if l.is_group() && (0.3..0.7).contains(&f) {
         "into"
@@ -2512,6 +2536,7 @@ fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect
     } else {
         "below"
     };
+    let Some(payload) = layer_drop_payload(dragged, l.id, position, &selected) else { return };
     let painter = ui.painter();
     match position {
         "into" => {
@@ -2525,7 +2550,7 @@ fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect
         }
     }
     if released {
-        actions.push(("layer.moveTo".into(), json!({"layer": dragged, "target": l.id.0, "position": position})));
+        actions.push(("layer.moveTo".into(), payload));
     }
 }
 
@@ -2977,5 +3002,43 @@ mod properties_card_tests {
         h.run_steps(3);
         let doc = &h.state().session.active().unwrap().doc;
         assert_eq!(ids.iter().map(|&id| doc.layer(id).unwrap().opacity).collect::<Vec<_>>(), [0.25, 0.25]);
+    }
+}
+
+#[cfg(test)]
+mod group_drag_selection_tests {
+    use super::*;
+
+    #[test]
+    fn dragging_a_selected_layer_moves_the_complete_selection_into_a_group() {
+        let a = LayerId(10);
+        let b = LayerId(11);
+        let group = LayerId(20);
+        let payload = layer_drop_payload(a.0, group, "into", &[a, b]).unwrap();
+        assert_eq!(payload, json!({"layers": [10, 11], "target": 20, "position": "into"}));
+        assert_eq!(payload.get("layer"), None, "batch drops must not also send a single layer");
+
+        // Above/below use the same batch route; engine preserves the document stack order.
+        assert_eq!(layer_drop_payload(b.0, group, "above", &[a, b]).unwrap()["position"], "above");
+        assert_eq!(layer_drop_payload(b.0, group, "below", &[a, b]).unwrap()["position"], "below");
+    }
+
+    #[test]
+    fn dropping_a_selection_on_one_of_its_own_rows_does_nothing() {
+        let (a, b, c) = (LayerId(10), LayerId(11), LayerId(12));
+        for position in ["above", "below", "into"] {
+            assert_eq!(layer_drop_payload(a.0, b, position, &[a, b, c]), None);
+            assert_eq!(layer_drop_payload(a.0, c, position, &[a, b, c]), None);
+        }
+    }
+
+    #[test]
+    fn dragging_unselected_or_singular_row_remains_a_single_layer_move() {
+        let a = LayerId(10);
+        let b = LayerId(11);
+        let group = LayerId(20);
+        assert_eq!(layer_drop_payload(9, group, "into", &[a, b]), Some(json!({"layer": 9, "target": 20, "position": "into"})));
+        assert_eq!(layer_drop_payload(a.0, group, "above", &[a]), Some(json!({"layer": 10, "target": 20, "position": "above"})));
+        assert_eq!(layer_drop_payload(a.0, group, "below", &[]), Some(json!({"layer": 10, "target": 20, "position": "below"})));
     }
 }
