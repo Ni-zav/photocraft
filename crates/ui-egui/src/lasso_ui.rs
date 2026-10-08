@@ -24,10 +24,10 @@ pub fn active(app: &PhotocraftApp) -> bool {
 /// Do not affect a freehand stroke whose primary button is still held.
 pub fn waiting_for_vertex(app: &PhotocraftApp) -> bool {
     app.ui.tool == Tool::Lasso
-        && app.drag.as_ref().is_some_and(|d| {
-            d.tool == Tool::Lasso
-                && d.lasso.as_ref().is_some_and(|l| !l.down && l.document == app.session.active().map(|st| st.doc.id))
-        })
+        && app
+            .drag
+            .as_ref()
+            .is_some_and(|d| d.tool == Tool::Lasso && d.lasso.as_ref().is_some_and(|l| !l.down && l.document == app.session.active().map(|st| st.doc.id)))
 }
 
 pub fn undo_last_vertex(app: &mut PhotocraftApp) -> bool {
