@@ -1,5 +1,33 @@
 use super::*;
 
+#[test]
+fn oversized_style_ids_do_not_alias_existing_or_default_styles() {
+    for prefix in ["type.characterStyle", "type.paragraphStyle"] {
+        let (mut s, lid) = session("Unchanged text");
+        let id = s.execute(&format!("{prefix}.new"), json!({"name": "original", "fromSelection": false})).unwrap()["id"].as_u64().unwrap();
+        s.execute(&format!("{prefix}.apply"), json!({"id": id, "layer": lid})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let past = s.active().unwrap().history.past_len();
+        let revision = s.active().unwrap().revision;
+        for oversized in [(1u64 << 32), id + (1u64 << 32), u64::MAX] {
+            for action in ["rename", "set", "duplicate", "delete", "apply", "redefine"] {
+                let command = format!("{prefix}.{action}");
+                let err = s.execute(&command, json!({"id": oversized, "layer": lid, "name": "wrong", "attrs": {"size": 30}})).unwrap_err();
+                assert!(matches!(err, EngineError::BadParams { .. }), "{command}: {err}");
+                assert_eq!(s.active().unwrap().doc.text_styles, before.text_styles, "{command}");
+                assert_eq!(layer(&s, lid), text_of(&before, LayerId(lid)).unwrap().clone(), "{command}");
+                assert_eq!(s.active().unwrap().history.past_len(), past, "{command}");
+                assert_eq!(s.active().unwrap().revision, revision, "{command}");
+            }
+        }
+        s.execute(&format!("{prefix}.rename"), json!({"id": id, "name": "valid"})).unwrap();
+        assert!(s.undo());
+        assert_eq!(s.active().unwrap().doc.text_styles, before.text_styles);
+        assert!(s.redo());
+        s.execute(&format!("{prefix}.apply"), json!({"id": 0, "layer": lid})).unwrap();
+    }
+}
+
 fn session(text: &str) -> (Session, u64) {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 400, "height": 200, "background": "transparent"})).unwrap();
