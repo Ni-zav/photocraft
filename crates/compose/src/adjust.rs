@@ -59,6 +59,11 @@ impl Transfer {
     }
 }
 
+/// Malformed document metadata must not overflow the cube dimensions or index a short table.
+fn valid_color_lookup_len(size: u32, len: usize) -> bool {
+    (size as usize).checked_pow(3).and_then(|count| count.checked_mul(3)).is_some_and(|needed| len >= needed)
+}
+
 /// Applies an adjustment assuming an sRGB document.
 pub fn apply(adj: &Adjustment, buf: &mut Buffer) {
     apply_with(adj, buf, Transfer::Srgb);
@@ -203,10 +208,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             }
         }),
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. }
-            if *size >= 2
-                && (*size as usize).checked_pow(3).and_then(|count| count.checked_mul(3)).is_some_and(|needed| table.len() >= needed) =>
-        {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if *size >= 2 && valid_color_lookup_len(*size, table.len()) => {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
             for (i, p) in buf.px.iter_mut().enumerate() {
                 if p[3] <= 0.0 {
