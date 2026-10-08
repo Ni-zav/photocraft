@@ -982,7 +982,9 @@ fn cpu_filter_preview(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     let p = app.filter_preview.as_ref()?;
     let result = p.result.clone()?;
     let (display, display_key) = canvas_display(app, &result, output);
-    let key = p.hash ^ display_key;
+    // Two documents can share a revision number and dialog parameters; keep their textures
+    // distinct even when the same canvas slot is reused for a different open tab.
+    let key = p.hash ^ display_key ^ p.doc.0.rotate_left(17);
     let id = egui::Id::new(("cpu-filter-preview", ctx.viewport_id(), idx, output));
     let cached: Option<(u64, egui::TextureHandle)> = ctx.data(|data| data.get_temp(id));
     let handle = if let Some((old_key, tex)) = cached.filter(|(old, _)| *old == key) {
