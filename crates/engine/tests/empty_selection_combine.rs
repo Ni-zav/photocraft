@@ -41,6 +41,10 @@ fn intersect_with_an_existing_selection_keeps_the_overlap() {
         "x": 8, "y": 9, "width": 12, "height": 10, "mode": "intersect"
     })).unwrap();
     let selection = session.active().unwrap().doc.selection.as_ref().unwrap();
-    assert!(selection.read_pixel(8, 9)[0] > 0.0);
-    assert!(selection.read_pixel(4, 5)[0] == 0.0);
+    let mut inside = [0.0];
+    let mut outside = [0.0];
+    selection.read_pixel(8, 9, &mut inside);
+    selection.read_pixel(4, 5, &mut outside);
+    assert!(inside[0] > 0.0);
+    assert_eq!(outside[0], 0.0);
 }
