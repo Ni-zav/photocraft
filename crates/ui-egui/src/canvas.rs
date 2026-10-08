@@ -926,6 +926,10 @@ fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: 
 
 /// Live preview for an open filter dialog: run the filter on the proxy and upload it.
 fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u64)> {
+    // Command dialogs always edit the active document; never draw their preview over another tab.
+    if app.session.active_index() != Some(idx) {
+        return None;
+    }
     if crate::adjust_preview::on_layer(app, idx) {
         return None;
     }
@@ -3891,6 +3895,25 @@ mod transform_controls_tests {
 #[cfg(test)]
 mod arbitrary_rotation_live_preview_tests {
     use super::*;
+
+    #[test]
+    fn arbitrary_rotation_preview_works_without_a_gpu_and_respects_preview_toggle() {
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", serde_json::json!({"width": 96, "height": 48})).unwrap();
+        let mut app = PhotocraftApp::new(session, crate::Services::default());
+        assert!(app.gpu.is_none());
+        crate::filter_dialog::open(&mut app, "image.rotation.arbitrary").unwrap();
+        let dialog = app.ui.dialogs.last_mut().unwrap();
+        dialog.fields.insert("angle".into(), serde_json::json!(90.0));
+        dialog.fields.insert("direction".into(), serde_json::json!("cw"));
+        let (factor, _key) = ensure_filter_preview(&mut app, 0).expect("preview on CPU");
+        assert_eq!(factor, 1);
+        let rotated = app.filter_preview.as_ref().unwrap().result.as_ref().unwrap();
+        assert_eq!((rotated.size.width, rotated.size.height), (48, 96));
+        assert_eq!((app.session.active().unwrap().doc.size.width, app.session.active().unwrap().doc.size.height), (96, 48));
+        app.ui.dialogs.last_mut().unwrap().fields.insert("__preview".into(), serde_json::json!(false));
+        assert!(ensure_filter_preview(&mut app, 0).is_none(), "disabling Preview restores the original document");
+    }
 
     #[test]
     fn rotated_proxy_centres_stay_anchored_under_pan_and_downsampling() {
