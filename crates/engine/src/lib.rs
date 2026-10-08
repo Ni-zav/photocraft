@@ -384,8 +384,14 @@ impl Session {
         if let Some(id) = self.docs.get(index).map(|d| d.doc.id) {
             self.cancel_jobs_on(id);
         }
+        let previous_active = self.active;
         let d = self.docs.remove(index);
-        self.active = if self.docs.is_empty() { None } else { Some(index.min(self.docs.len() - 1)) };
+        self.active = match previous_active {
+            _ if self.docs.is_empty() => None,
+            Some(active) if active == index => Some(index.min(self.docs.len() - 1)),
+            Some(active) if active > index => Some(active - 1),
+            other => other,
+        };
         Some(d)
     }
 
