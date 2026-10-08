@@ -198,8 +198,9 @@ fn apply_options(sl: &mut Slice, p: &Value, cmd: &str) -> Result<()> {
 /// it to a user slice first when `promote` is set.
 fn target(s: &mut Session, p: &Value, cmd: &str, promote: bool) -> Result<u32> {
     if let Some(id) = crate::commands::int(p, "slice").filter(|v| *v >= 0).map(|v| v as u64) {
+        let id = u32::try_from(id).map_err(|_| bad(cmd, "slice id is outside the 32-bit id range"))?;
         let d = s.active().ok_or(EngineError::NoDocument)?;
-        return d.doc.slices.get(id as u32).map(|sl| sl.id).ok_or_else(|| bad(cmd, format!("no slice with id {id}")));
+        return d.doc.slices.get(id).map(|sl| sl.id).ok_or_else(|| bad(cmd, format!("no slice with id {id}")));
     }
     let n = crate::commands::int(p, "number").filter(|v| *v > 0).ok_or_else(|| bad(cmd, "give \"slice\" (id) or \"number\""))? as usize;
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -342,7 +343,12 @@ fn promote(s: &mut Session, p: &Value) -> Result<Value> {
 fn ids_param(s: &mut Session, p: &Value, cmd: &str) -> Result<Vec<u32>> {
     if let Some(a) = p.get("slices").and_then(Value::as_array) {
         let d = s.active().ok_or(EngineError::NoDocument)?;
-        let ids: Vec<u32> = a.iter().filter_map(Value::as_u64).map(|v| v as u32).filter(|id| d.doc.slices.get(*id).is_some()).collect();
+        let mut ids: Vec<u32> = a
+            .iter()
+            .filter_map(Value::as_u64)
+            .map(|v| u32::try_from(v).map_err(|_| bad(cmd, "slice id is outside the 32-bit id range")))
+            .collect::<Result<Vec<_>>>()?;
+        ids.retain(|id| d.doc.slices.get(*id).is_some());
         if ids.is_empty() {
             return Err(bad(cmd, "none of the slices exist"));
         }

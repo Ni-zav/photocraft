@@ -196,3 +196,40 @@ fn exhausted_slice_ids_fail_without_mutating_document_or_history() {
         assert_eq!(s.active().unwrap().revision, revision, "{command}");
     }
 }
+
+#[test]
+fn oversized_slice_ids_do_not_alias_existing_slices() {
+    let mut s = session(8);
+    let id = s.execute("slice.new", json!({"rect": [10, 10, 20, 20], "name": "original"})).unwrap()["slice"].as_u64().unwrap();
+    let before = doc(&s).slices.clone();
+    let past = s.active().unwrap().history.past_len();
+    let revision = s.active().unwrap().revision;
+    let alias = id + (1u64 << 32);
+
+    for oversized in [alias, u64::MAX] {
+        for (command, params) in [
+            ("slice.set", json!({"slice": oversized, "name": "wrong"})),
+            ("slice.promote", json!({"slice": oversized})),
+            ("slice.divide", json!({"slice": oversized, "vertical": 2})),
+            ("slice.delete", json!({"slice": oversized})),
+            ("slice.delete", json!({"slices": [oversized]})),
+            ("slice.delete", json!({"slices": [id, oversized]})),
+        ] {
+            assert!(s.execute(command, params).is_err(), "{command}: {oversized}");
+            assert_eq!(doc(&s).slices, before, "{command}");
+            assert_eq!(s.active().unwrap().history.past_len(), past, "{command}");
+            assert_eq!(s.active().unwrap().revision, revision, "{command}");
+        }
+    }
+
+    s.execute("slice.set", json!({"slice": id, "name": "valid"})).unwrap();
+    assert_eq!(doc(&s).slices.get(id as u32).unwrap().name, "valid");
+    assert!(s.undo());
+    assert_eq!(doc(&s).slices, before);
+    assert!(s.redo());
+    assert_eq!(doc(&s).slices.get(id as u32).unwrap().name, "valid");
+    s.execute("slice.delete", json!({"slices": [id]})).unwrap();
+    assert!(doc(&s).slices.is_empty());
+    assert!(s.undo());
+    assert_eq!(doc(&s).slices.get(id as u32).unwrap().name, "valid");
+}
