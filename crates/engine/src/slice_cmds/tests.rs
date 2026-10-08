@@ -84,6 +84,42 @@ fn promote_auto_slice_and_divide() {
 }
 
 #[test]
+fn invalid_options_do_not_promote_an_auto_slice() {
+    let mut s = session(8);
+    s.execute("slice.new", json!({"rect": [0, 0, 60, 45]})).unwrap();
+    let before = doc(&s).slices.clone();
+    let past = s.active().unwrap().history.past_len();
+    let revision = s.active().unwrap().revision;
+    for params in [json!({"number": 2, "kind": "bogus"}), json!({"number": 2, "background": "bogus"})] {
+        assert!(s.execute("slice.set", params).is_err());
+        assert_eq!(doc(&s).slices, before);
+        assert_eq!(s.active().unwrap().history.past_len(), past);
+        assert_eq!(s.active().unwrap().revision, revision);
+    }
+}
+
+#[test]
+fn options_after_promotion_have_their_own_undo_step() {
+    let mut s = session(8);
+    s.execute("slice.new", json!({"rect": [0, 0, 60, 45]})).unwrap();
+    let initial = doc(&s).slices.clone();
+    s.execute("slice.set", json!({"number": 2, "name": "first"})).unwrap();
+    let promoted = doc(&s).slices.clone();
+    let past = s.active().unwrap().history.past_len();
+    s.execute("slice.set", json!({"number": 2, "name": "second"})).unwrap();
+    let edited = doc(&s).slices.clone();
+    assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+    assert!(s.undo());
+    assert_eq!(doc(&s).slices, promoted);
+    assert!(s.undo());
+    assert_eq!(doc(&s).slices, initial);
+    assert!(s.redo());
+    assert_eq!(doc(&s).slices, promoted);
+    assert!(s.redo());
+    assert_eq!(doc(&s).slices, edited);
+}
+
+#[test]
 fn slices_from_guides_and_clear() {
     let mut s = session(8);
     s.edit("guides", |d, _| {

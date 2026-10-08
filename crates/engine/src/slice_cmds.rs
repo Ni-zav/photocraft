@@ -194,27 +194,29 @@ fn apply_options(sl: &mut Slice, p: &Value, cmd: &str) -> Result<()> {
     Ok(())
 }
 
-/// The stored slice addressed by `"slice"` (id) or `"number"`; an auto slice's number promotes
-/// it to a user slice first when `promote` is set.
-fn target(s: &mut Session, p: &Value, cmd: &str, promote: bool) -> Result<u32> {
+/// Locate a stored or auto slice without changing the document or its history.
+fn locate_target(s: &Session, p: &Value, cmd: &str) -> Result<(Option<u32>, Rect)> {
     if let Some(id) = crate::commands::int(p, "slice").filter(|v| *v >= 0).map(|v| v as u64) {
         let d = s.active().ok_or(EngineError::NoDocument)?;
-        return d.doc.slices.get(id as u32).map(|sl| sl.id).ok_or_else(|| bad(cmd, format!("no slice with id {id}")));
+        return d.doc.slices.get(id as u32).map(|sl| (Some(sl.id), sl.rect)).ok_or_else(|| bad(cmd, format!("no slice with id {id}")));
     }
     let n = crate::commands::int(p, "number").filter(|v| *v > 0).ok_or_else(|| bad(cmd, "give \"slice\" (id) or \"number\""))? as usize;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let r = slices::resolve(&d.doc).into_iter().find(|r| r.number == n).ok_or_else(|| bad(cmd, format!("no slice number {n}")))?;
-    match r.id {
+    Ok((r.id, r.rect))
+}
+
+/// Resolve a stored id, promoting an auto slice when requested.
+fn target(s: &mut Session, p: &Value, cmd: &str, promote: bool) -> Result<u32> {
+    let (id, rect) = locate_target(s, p, cmd)?;
+    match id {
         Some(id) => Ok(id),
-        None if promote => {
-            let rect = r.rect;
-            s.edit("Promote to User Slice", |doc, _| {
-                let id = doc.slices.next_id().ok_or_else(exhausted_id)?;
-                doc.slices.list.push(Slice { id, rect, ..Default::default() });
-                Ok(id)
-            })
-        }
-        None => Err(bad(cmd, format!("slice {n} is an auto slice"))),
+        None if promote => s.edit("Promote to User Slice", |doc, _| {
+            let id = doc.slices.next_id().ok_or_else(exhausted_id)?;
+            doc.slices.list.push(Slice { id, rect, ..Default::default() });
+            Ok(id)
+        }),
+        None => Err(bad(cmd, "the target is an auto slice")),
     }
 }
 
@@ -297,26 +299,21 @@ fn set_slice(s: &mut Session, p: &Value) -> Result<Value> {
     if ["rect", "x", "y", "width", "height"].iter().any(|key| p.get(key).is_some()) && rect_param(p).is_none() {
         return Err(bad(cmd, "give a finite rectangle with positive dimensions and representable corners"));
     }
-    let id = target(s, p, cmd, true)?;
-    let coalesce_into_promote = s.active().is_some_and(|d| d.history.undo_label() == Some("Promote to User Slice")) && p.get("number").is_some();
-    let label = "Slice Options";
-    let run = |doc: &mut Document, _: &mut Option<LayerId>| -> Result<()> {
+    let (stored_id, rect) = locate_target(s, p, cmd)?;
+    let id = s.edit("Slice Options", |doc, _| {
+        // Auto-slice promotion and options belong to the same transaction, including failures.
+        let id = match stored_id {
+            Some(id) => id,
+            None => {
+                let id = doc.slices.next_id().ok_or_else(exhausted_id)?;
+                doc.slices.list.push(Slice { id, rect, ..Default::default() });
+                id
+            }
+        };
         let sl = doc.slices.get_mut(id).ok_or_else(|| bad(cmd, "slice vanished"))?;
         apply_options(sl, p, cmd)?;
-        Ok(())
-    };
-    if coalesce_into_promote {
-        // Promote + options are one user action: fold the options into the promote step.
-        let st = s.active_mut().ok_or(EngineError::NoDocument)?;
-        let mut doc = (*st.doc).clone();
-        let mut a = st.active_layer;
-        run(&mut doc, &mut a)?;
-        st.doc = Arc::new(doc);
-        st.revision += 1;
-        st.last_damage = None;
-    } else {
-        s.edit(label, run)?;
-    }
+        Ok(id)
+    })?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let r = slices::resolve(&d.doc).into_iter().find(|r| r.id == Some(id)).ok_or_else(|| bad(cmd, "slice is off the canvas"))?;
     Ok(resolved_json(&d.doc, &r))
