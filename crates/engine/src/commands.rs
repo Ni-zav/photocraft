@@ -473,6 +473,10 @@ fn build() -> Vec<CommandSpec> {
             }
             let id = layer_param(s, p)?;
             s.edit("Delete Layer", |doc, active| {
+                // Keep the same invariant as multi-layer deletion, before mutating the document.
+                if doc.layers.len() == 1 && doc.layers.first().is_some_and(|layer| layer.id == id) {
+                    return Err(EngineError::Other("a document must keep at least one layer".into()));
+                }
                 doc.remove(id).ok_or(EngineError::NoLayer(id))?;
                 if *active == Some(id) {
                     *active = doc.top_layer();
