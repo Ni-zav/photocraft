@@ -946,6 +946,60 @@ mod tests {
     }
 
     #[test]
+    fn twirl_reverse_is_held_per_stroke_and_survives_replay_undo_redo() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        control(&mut app, &json!({"tool": "twirlCw", "size": 36, "rate": 80})).unwrap();
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCw, egui::Modifiers::NONE), LiquifyTool::TwirlCw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCw, egui::Modifiers::SHIFT), LiquifyTool::TwirlCcw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCw, egui::Modifiers::COMMAND), LiquifyTool::TwirlCcw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCcw, egui::Modifiers::COMMAND), LiquifyTool::TwirlCw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::Pucker, egui::Modifiers::SHIFT), LiquifyTool::Pucker);
+
+        let down = ToolEvent::Down { x: 53.0, y: 40.0, pressure: 1.0 };
+        // Modifier is captured at Down: releasing it during the drag cannot flip direction.
+        pointer(&mut app, down, egui::Modifiers::SHIFT);
+        pointer(&mut app, ToolEvent::Move { x: 58.0, y: 41.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        pointer(&mut app, ToolEvent::Up { x: 58.0, y: 41.0 }, egui::Modifiers::NONE);
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.opts.tool, LiquifyTool::TwirlCw, "temporary reverse does not change selected tool");
+        assert_eq!(d.strokes.len(), 1);
+        assert_eq!(d.strokes[0].tool, LiquifyTool::TwirlCcw);
+        assert_eq!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes), d.field);
+
+        // An unmodified second stroke returns to the ordinary clockwise direction.
+        pointer(&mut app, down, egui::Modifiers::NONE);
+        pointer(&mut app, ToolEvent::Up { x: 53.0, y: 40.0 }, egui::Modifiers::NONE);
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.strokes.len(), 2);
+        assert_eq!(d.strokes[1].tool, LiquifyTool::TwirlCw);
+        assert_eq!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes), d.field);
+        control(&mut app, &json!({"undo": true})).unwrap();
+        assert_eq!(app.distort.liquify.as_ref().unwrap().strokes[0].tool, LiquifyTool::TwirlCcw);
+        control(&mut app, &json!({"redo": true})).unwrap();
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.strokes[1].tool, LiquifyTool::TwirlCw);
+        assert_eq!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes), d.field);
+    }
+
+    #[test]
+    fn shift_c_selects_counterclockwise_and_c_restores_clockwise() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        for (held, want) in [(egui::Modifiers::SHIFT, LiquifyTool::TwirlCcw), (egui::Modifiers::NONE, LiquifyTool::TwirlCw)] {
+            let raw = egui::RawInput {
+                events: vec![egui::Event::Key { key: egui::Key::C, physical_key: None, pressed: true, repeat: false, modifiers: held }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| keys(&mut app, ui.ctx()));
+            assert_eq!(app.distort.liquify.as_ref().unwrap().opts.tool, want);
+        }
+        assert_eq!(shortcut(LiquifyTool::TwirlCcw), "Shift+C");
+    }
+
+    #[test]
     fn dialog_strokes_match_the_engine_and_commit_once() {
         let ctx = egui::Context::default();
         let mut app = app_with_layer();
