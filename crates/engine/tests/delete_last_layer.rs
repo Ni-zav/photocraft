@@ -6,12 +6,18 @@ fn explicitly_deleting_the_last_layer_leaves_the_document_unchanged() {
     let mut session = Session::new();
     session.execute("file.new", json!({"width": 10, "height": 5, "background": "transparent"})).unwrap();
     let id = session.active().unwrap().doc.layers[0].id.0;
+    let before = session.active().unwrap().doc.clone();
+    let revision = session.active().unwrap().revision;
     let result = session.execute("layer.delete", json!({"layer": id}));
     assert!(result.is_err(), "last-layer deletion should be refused");
     let doc = &session.active().unwrap().doc;
     assert_eq!(doc.layers.len(), 1);
     assert_eq!(doc.layers[0].id.0, id);
     assert_eq!(session.active().unwrap().active_layer.map(|l| l.0), Some(id));
+    assert!(std::sync::Arc::ptr_eq(doc, &before));
+    assert_eq!(session.active().unwrap().revision, revision);
+    assert!(!session.active().unwrap().is_dirty());
+    assert!(!session.undo());
 }
 
 #[test]
@@ -24,4 +30,11 @@ fn explicitly_deleting_a_layer_still_works_when_another_remains() {
     let doc = &session.active().unwrap().doc;
     assert_eq!(doc.layers.len(), 1);
     assert_eq!(doc.layers[0].id.0, original_id);
+    assert!(session.active().unwrap().is_dirty());
+    assert!(session.undo());
+    assert_eq!(session.active().unwrap().doc.layers.len(), 2);
+    assert_eq!(session.active().unwrap().active_layer.map(|id| id.0), Some(added_id));
+    assert!(session.redo());
+    assert_eq!(session.active().unwrap().doc.layers.len(), 1);
+    assert_eq!(session.active().unwrap().active_layer.map(|id| id.0), Some(original_id));
 }
