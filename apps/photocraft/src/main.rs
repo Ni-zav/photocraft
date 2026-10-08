@@ -131,7 +131,14 @@ fn main() -> eframe::Result {
     let mut automation_write_root = std::env::var_os("PHOTOCRAFT_AUTOMATION_WRITE_ROOT").map(std::path::PathBuf::from);
     let mut files = Vec::new();
     let mut safe_gpu = false;
-    let mut args = std::env::args().skip(1);
+    let args = match std::env::args_os().skip(1).map(|arg| arg.into_string()).collect::<Result<Vec<_>, _>>() {
+        Ok(args) => args,
+        Err(_) => {
+            eprintln!("photocraft: command-line arguments must be valid UTF-8");
+            std::process::exit(2);
+        }
+    };
+    let mut args = args.into_iter();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--control" => match args.next() {
