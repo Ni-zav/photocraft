@@ -193,9 +193,12 @@ impl LiquifyDialog {
         self.mask_dirty |= mask;
     }
 
-    fn begin(&mut self, p: [f64; 3], now: f64) {
+    fn begin(&mut self, p: [f64; 3], now: f64, tool: LiquifyTool) {
         self.redo.clear();
         let mut s = self.template();
+        // A modifier reverses Twirl for the entire stroke. Keep the actual tool in
+        // the serialized stroke so replay/undo never depend on current key state.
+        s.tool = tool;
         s.points.push(p.to_vec());
         let t0 = crate::gpu_canvas::now_ms();
         let d = self.field.stroke_begin(&s, p);
@@ -441,6 +444,19 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     Ok(d.describe())
 }
 
+/// Photoshop-style temporary reverse: Shift or Cmd/Ctrl pressed when starting a Twirl
+/// stroke selects the opposite direction. Other Liquify tools never change direction.
+fn twirl_tool_for_press(tool: LiquifyTool, mods: egui::Modifiers) -> LiquifyTool {
+    if !mods.shift && !mods.command {
+        return tool;
+    }
+    match tool {
+        LiquifyTool::TwirlCw => LiquifyTool::TwirlCcw,
+        LiquifyTool::TwirlCcw => LiquifyTool::TwirlCw,
+        _ => tool,
+    }
+}
+
 /// Pointer in document coordinates (from the preview or the control channel). Alt = subtract
 /// from the freeze mask (lasso only); Shift adds, same as no modifier.
 pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
@@ -451,7 +467,8 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
             if d.opts.tool == LiquifyTool::LassoMask {
                 d.lasso = Some((mods.alt, vec![[x, y]]));
             } else {
-                d.begin([x, y, f64::from(pressure)], now);
+                let effective = twirl_tool_for_press(d.opts.tool, mods);
+                d.begin([x, y, f64::from(pressure)], now, effective);
             }
         }
         ToolEvent::Move { x, y, pressure } => {
@@ -504,6 +521,11 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)) {
         d.opts.size = (d.opts.size * 1.1).min(15000.0);
     }
+    // Shift+C selects the dedicated counterclockwise tool, while simply holding
+    // Shift or Cmd during a clockwise dab reverses that stroke temporarily.
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::C)) {
+        d.opts.tool = LiquifyTool::TwirlCcw;
+    }
     let tools = [
         (egui::Key::W, LiquifyTool::ForwardWarp),
         (egui::Key::R, LiquifyTool::Reconstruct),
@@ -546,6 +568,7 @@ fn shortcut(t: LiquifyTool) -> &'static str {
         LiquifyTool::Reconstruct => "R",
         LiquifyTool::Smooth => "E",
         LiquifyTool::TwirlCw => "C",
+        LiquifyTool::TwirlCcw => "Shift+C",
         LiquifyTool::Pucker => "S",
         LiquifyTool::Bloat => "B",
         LiquifyTool::PushLeft => "O",
@@ -608,6 +631,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             let tip = match tool {
                 // The lasso works on the same freeze mask as Freeze/Thaw.
                 LiquifyTool::LassoMask => tl!("Freeze Lasso: drag to freeze an area, Alt-drag to thaw it (L)").to_string(),
+                LiquifyTool::TwirlCw | LiquifyTool::TwirlCcw => format!("{} ({}; Shift/Cmd: reverse)", tl!(tool.label()), shortcut(tool)),
                 _ => format!("{} ({})", tl!(tool.label()), shortcut(tool)),
             };
             if crate::icons::button(&mut strip, tool_icon(tool), 34.0, d.opts.tool == tool, &tip).clicked() {
@@ -919,6 +943,60 @@ mod tests {
         app.session.prefs.edit(|p| p.dialogs.insert(REMEMBERED.into(), json!("not an object")));
         cancel(&mut app);
         assert!(open(&mut app, &ctx).is_ok());
+    }
+
+    #[test]
+    fn twirl_reverse_is_held_per_stroke_and_survives_replay_undo_redo() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        control(&mut app, &json!({"tool": "twirlCw", "size": 36, "rate": 80})).unwrap();
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCw, egui::Modifiers::NONE), LiquifyTool::TwirlCw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCw, egui::Modifiers::SHIFT), LiquifyTool::TwirlCcw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCw, egui::Modifiers::COMMAND), LiquifyTool::TwirlCcw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::TwirlCcw, egui::Modifiers::COMMAND), LiquifyTool::TwirlCw);
+        assert_eq!(twirl_tool_for_press(LiquifyTool::Pucker, egui::Modifiers::SHIFT), LiquifyTool::Pucker);
+
+        let down = ToolEvent::Down { x: 53.0, y: 40.0, pressure: 1.0 };
+        // Modifier is captured at Down: releasing it during the drag cannot flip direction.
+        pointer(&mut app, down, egui::Modifiers::SHIFT);
+        pointer(&mut app, ToolEvent::Move { x: 58.0, y: 41.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        pointer(&mut app, ToolEvent::Up { x: 58.0, y: 41.0 }, egui::Modifiers::NONE);
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.opts.tool, LiquifyTool::TwirlCw, "temporary reverse does not change selected tool");
+        assert_eq!(d.strokes.len(), 1);
+        assert_eq!(d.strokes[0].tool, LiquifyTool::TwirlCcw);
+        assert_eq!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes), d.field);
+
+        // An unmodified second stroke returns to the ordinary clockwise direction.
+        pointer(&mut app, down, egui::Modifiers::NONE);
+        pointer(&mut app, ToolEvent::Up { x: 53.0, y: 40.0 }, egui::Modifiers::NONE);
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.strokes.len(), 2);
+        assert_eq!(d.strokes[1].tool, LiquifyTool::TwirlCw);
+        assert_eq!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes), d.field);
+        control(&mut app, &json!({"undo": true})).unwrap();
+        assert_eq!(app.distort.liquify.as_ref().unwrap().strokes[0].tool, LiquifyTool::TwirlCcw);
+        control(&mut app, &json!({"redo": true})).unwrap();
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.strokes[1].tool, LiquifyTool::TwirlCw);
+        assert_eq!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes), d.field);
+    }
+
+    #[test]
+    fn shift_c_selects_counterclockwise_and_c_restores_clockwise() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        for (held, want) in [(egui::Modifiers::SHIFT, LiquifyTool::TwirlCcw), (egui::Modifiers::NONE, LiquifyTool::TwirlCw)] {
+            let raw = egui::RawInput {
+                events: vec![egui::Event::Key { key: egui::Key::C, physical_key: None, pressed: true, repeat: false, modifiers: held }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| keys(&mut app, ui.ctx()));
+            assert_eq!(app.distort.liquify.as_ref().unwrap().opts.tool, want);
+        }
+        assert_eq!(shortcut(LiquifyTool::TwirlCcw), "Shift+C");
     }
 
     #[test]
