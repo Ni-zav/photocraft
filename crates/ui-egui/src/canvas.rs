@@ -959,6 +959,18 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
     app.filter_preview.as_ref().filter(|p| p.result.is_some()).map(|p| (p.k, key))
 }
 
+/// The preview document may have different canvas dimensions (e.g. Image Rotation ›
+/// Arbitrary). Keep the original document's centre anchored to the same screen position,
+/// while using the preview's real dimensions for GPU texture coordinates. A proxy's
+/// dimensions are in downsampled pixels, so pan offsets also need dividing by `factor`.
+fn filter_preview_view(source_size: [u32; 2], result_size: [u32; 2], center: [f32; 2], factor: u32) -> [f32; 2] {
+    let k = factor.max(1) as f32;
+    [
+        (center[0] - source_size[0] as f32 * 0.5) / k + result_size[0] as f32 * 0.5,
+        (center[1] - source_size[1] as f32 * 0.5) / k + result_size[1] as f32 * 0.5,
+    ]
+}
+
 /// The document pixels a (non-rotated) view shows, with a margin for filtering.
 fn visible_doc_rect(xf: &ViewXform) -> DRect {
     let (a, b) = (xf.to_doc(xf.rect.min), xf.to_doc(xf.rect.max));
@@ -1763,11 +1775,26 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             .or_else(|| ensure_proxy_preview(app, idx))
     {
         on_gpu = true;
+        // A filter preview normally retains the original canvas dimensions, but arbitrary
+        // rotation expands the proxy to fit the rotated image. Sampling it using the old
+        // width/height or centre can make the entire preview appear blank (#1436).
+        let filter_key = doc.id.0 ^ (1u64 << 61);
+        let result_size = if key == filter_key {
+            app.filter_preview
+                .as_ref()
+                .filter(|p| p.doc == doc.id)
+                .and_then(|p| p.result.as_ref())
+                .map(|r| [r.size.width, r.size.height])
+        } else {
+            None
+        };
+        let proxy_size = result_size.unwrap_or([doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)]);
+        let proxy_center = filter_preview_view([doc.size.width, doc.size.height], proxy_size, view.center, k);
         let params = crate::gpu_canvas::ViewParams {
             doc: key,
-            doc_size: [doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)],
+            doc_size: proxy_size,
             zoom: view.zoom * k as f32,
-            center: [view.center[0] / k as f32, view.center[1] / k as f32],
+            center: proxy_center,
             shadow: {
                 let t = crate::theme::Tokens::get(&ctx);
                 !t.bevel && !t.pro && drop_shadow
@@ -3822,5 +3849,30 @@ mod transform_controls_tests {
         assert!(transform_controls_hit(r, pos2(60.0, 18.0)));
         assert!(!transform_controls_hit(r, r.center()));
         assert!(!transform_controls_hit(r, pos2(60.0, 4.0)));
+    }
+}
+#[cfg(test)]
+mod arbitrary_rotation_live_preview_tests {
+    use super::*;
+
+    #[test]
+    fn rotated_proxy_centres_stay_anchored_under_pan_and_downsampling() {
+        for k in [1, 2, 4] {
+            let source = [120, 80];
+            let rotated = [80 / k, 120 / k];
+            let centered = filter_preview_view(source, rotated, [60.0, 40.0], k);
+            assert_eq!(centered, [rotated[0] as f32 / 2.0, rotated[1] as f32 / 2.0]);
+            let panned = filter_preview_view(source, rotated, [72.0, 28.0], k);
+            assert_eq!(panned, [rotated[0] as f32 / 2.0 + 12.0 / k as f32, rotated[1] as f32 / 2.0 - 12.0 / k as f32]);
+        }
+    }
+
+    #[test]
+    fn unchanged_proxy_keeps_existing_view_coordinates() {
+        let source = [257, 129];
+        let result = [65, 33]; // ceil-divided proxy dimensions
+        let pan = [160.0, 70.0];
+        let centre = filter_preview_view(source, result, pan, 4);
+        assert_eq!(centre, [result[0] as f32 / 2.0 + (pan[0] - 128.5) / 4.0, result[1] as f32 / 2.0 + (pan[1] - 64.5) / 4.0]);
     }
 }
