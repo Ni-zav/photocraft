@@ -712,13 +712,8 @@ mod lookup_tests {
         let original = [0.2, 0.4, 0.7, 1.0];
         for size in [0, 1, 3, 4_194_304, u32::MAX] {
             // 24 numbers fit a 2³ LUT, not the advertised dimensions above.
-            let lookup = Adjustment::ColorLookup {
-                name: "malformed".into(),
-                lut: Some(std::sync::Arc::new(vec![0.5; 24])),
-                size,
-                tetrahedral: false,
-                dither: false,
-            };
+            let lookup =
+                Adjustment::ColorLookup { name: "malformed".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size, tetrahedral: false, dither: false };
             let mut buf = Buffer { rect: photocraft_geom::Rect::new(0, 0, 1, 1), px: vec![original] };
             apply(&lookup, &mut buf);
             assert_eq!(buf.px[0], original, "size={size}");
@@ -727,13 +722,8 @@ mod lookup_tests {
 
     #[test]
     fn well_formed_color_lookup_still_applies() {
-        let lookup = Adjustment::ColorLookup {
-            name: "black".into(),
-            lut: Some(std::sync::Arc::new(vec![0.0; 24])),
-            size: 2,
-            tetrahedral: false,
-            dither: false,
-        };
+        let lookup =
+            Adjustment::ColorLookup { name: "black".into(), lut: Some(std::sync::Arc::new(vec![0.0; 24])), size: 2, tetrahedral: false, dither: false };
         let mut buf = Buffer { rect: photocraft_geom::Rect::new(0, 0, 1, 1), px: vec![[0.2, 0.4, 0.7, 1.0]] };
         apply(&lookup, &mut buf);
         assert_eq!(buf.px[0], [0.0, 0.0, 0.0, 1.0]);
