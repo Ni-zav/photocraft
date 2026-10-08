@@ -534,6 +534,39 @@ mod tests {
         assert!(missing.is_empty(), "missing Korean dynamic labels: {missing:#?}");
     }
 
+    /// Regression #1436: the engine's preview is genuinely rotated, and its canvas grows
+    /// to fit instead of retaining the source aspect ratio. The source remains untouched.
+    #[test]
+    fn arbitrary_rotation_preview_has_rotated_dimensions_at_each_proxy_factor() {
+        let mut doc = Document::with_background(
+            "rotation",
+            photocraft_doc::Size::new(96, 48),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        );
+        let bg = doc.layers[0].id;
+        doc.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 24, 24), &[0.0, 0.0, 0.0, 1.0]);
+        let original = doc.clone();
+
+        for k in [1, 2, 4] {
+            let cw = preview_document(&doc, Some(bg), "image.rotation.arbitrary", &json!({"angle": 90.0, "direction": "cw"}), k).unwrap();
+            let ccw = preview_document(&doc, Some(bg), "image.rotation.arbitrary", &json!({"angle": 90.0, "direction": "ccw"}), k).unwrap();
+            assert_eq!((cw.size.width, cw.size.height), (48 / k, 96 / k), "clockwise k={k}");
+            assert_eq!((ccw.size.width, ccw.size.height), (48 / k, 96 / k), "counterclockwise k={k}");
+            let changed = |d: &Document| {
+                let pixels = photocraft_compose::flatten(d);
+                pixels.px.iter().any(|p| p[0] < 0.5)
+            };
+            assert!(changed(&cw), "clockwise preview must show the rotated pixels at k={k}");
+            assert!(changed(&ccw), "counterclockwise preview must show the rotated pixels at k={k}");
+        }
+        assert_eq!(doc, original, "changing Preview must not edit the document");
+        let neutral = preview_document(&doc, Some(bg), "image.rotation.arbitrary", &json!({"angle": 0.0}), 1).unwrap();
+        assert_eq!(neutral.size, doc.size);
+        assert!(preview_document(&doc, Some(bg), "image.rotation.arbitrary", &json!({"angle": 5000.0}), 1).is_none());
+    }
+
     #[test]
     fn preview_runs_engine_command_on_proxy() {
         let mut doc = Document::with_background(

@@ -926,6 +926,10 @@ fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: 
 
 /// Live preview for an open filter dialog: run the filter on the proxy and upload it.
 fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u64)> {
+    // Command dialogs always edit the active document; never draw their preview over another tab.
+    if app.session.active_index() != Some(idx) {
+        return None;
+    }
     if crate::adjust_preview::on_layer(app, idx) {
         return None;
     }
@@ -951,12 +955,55 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
             let buf = photocraft_compose::flatten(r);
             let t1 = crate::gpu_canvas::now_ms();
             let (display, _) = canvas_display(app, &doc, None);
-            app.gpu.as_ref()?.upload_buffer_full(key, &texture_buffer(display.as_deref(), &buf), doc.depth);
+            if let Some(gpu) = app.gpu.as_ref() {
+                gpu.upload_buffer_full(key, &texture_buffer(display.as_deref(), &buf), doc.depth);
+            }
             app.perf.record("filter-preview", r.size.area(), t1 - t0, crate::gpu_canvas::now_ms() - t1);
         }
         app.filter_preview = Some(crate::filter_dialog::FilterPreview { doc: doc_id, revision, hash, k, result });
     }
     app.filter_preview.as_ref().filter(|p| p.result.is_some()).map(|p| (p.k, key))
+}
+
+/// The preview document may have different canvas dimensions (e.g. Image Rotation ›
+/// Arbitrary). Keep the original document's centre anchored to the same screen position,
+/// while using the preview's real dimensions for GPU texture coordinates. A proxy's
+/// dimensions are in downsampled pixels, so pan offsets also need dividing by `factor`.
+fn filter_preview_view(source_size: [u32; 2], result_size: [u32; 2], center: [f32; 2], factor: u32) -> [f32; 2] {
+    let k = factor.max(1) as f32;
+    [(center[0] - source_size[0] as f32 * 0.5) / k + result_size[0] as f32 * 0.5, (center[1] - source_size[1] as f32 * 0.5) / k + result_size[1] as f32 * 0.5]
+}
+
+/// CPU fallback for filter previews, including arbitrary rotation. The filter engine
+/// runs on a downsampled copy, then we cache the resulting egui texture by parameter/revision
+/// hash. No GPU canvas is required (e.g. software rendering, lost GPU, flipped views).
+fn cpu_filter_preview(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, output: Option<u32>) -> Option<(egui::TextureId, [u32; 2], u32)> {
+    let (k, _) = ensure_filter_preview(app, idx)?;
+    let p = app.filter_preview.as_ref()?;
+    let result = p.result.clone()?;
+    let (display, display_key) = canvas_display(app, &result, output);
+    // Two documents can share a revision number and dialog parameters; keep their textures
+    // distinct even when the same canvas slot is reused for a different open tab.
+    let key = p.hash ^ display_key ^ p.doc.0.rotate_left(17);
+    let id = egui::Id::new(("cpu-filter-preview", ctx.viewport_id(), idx, output));
+    let cached: Option<(u64, egui::TextureHandle)> = ctx.data(|data| data.get_temp(id));
+    let handle = if let Some((old_key, tex)) = cached.filter(|(old, _)| *old == key) {
+        let _ = old_key;
+        tex
+    } else {
+        let pixels = photocraft_compose::flatten(&result);
+        let image = display_image(display.as_deref(), &pixels);
+        let texture = ctx.load_texture(format!("filter-preview-{idx}-{}", output.unwrap_or(0)), image, TextureOptions::LINEAR);
+        ctx.data_mut(|data| data.insert_temp(id, (key, texture.clone())));
+        texture
+    };
+    Some((handle.id(), [result.size.width, result.size.height], k))
+}
+
+/// The preview's pixel dimensions are scaled back to document points, but its
+/// *centre* stays anchored to the unrotated document during the dialog.
+fn filter_preview_rect(source_rect: Rect, result_size: [u32; 2], factor: u32, zoom: f32) -> Rect {
+    Rect::from_center_size(source_rect.center(), vec2(result_size[0] as f32, result_size[1] as f32) * factor.max(1) as f32 * zoom)
 }
 
 /// The document pixels a (non-rotated) view shows, with a margin for filtering.
@@ -1763,11 +1810,22 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             .or_else(|| ensure_proxy_preview(app, idx))
     {
         on_gpu = true;
+        // A filter preview normally retains the original canvas dimensions, but arbitrary
+        // rotation expands the proxy to fit the rotated image. Sampling it using the old
+        // width/height or centre can make the entire preview appear blank (#1436).
+        let filter_key = doc.id.0 ^ (1u64 << 61);
+        let result_size = if key == filter_key {
+            app.filter_preview.as_ref().filter(|p| p.doc == doc.id).and_then(|p| p.result.as_ref()).map(|r| [r.size.width, r.size.height])
+        } else {
+            None
+        };
+        let proxy_size = result_size.unwrap_or([doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)]);
+        let proxy_center = filter_preview_view([doc.size.width, doc.size.height], proxy_size, view.center, k);
         let params = crate::gpu_canvas::ViewParams {
             doc: key,
-            doc_size: [doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)],
+            doc_size: proxy_size,
             zoom: view.zoom * k as f32,
-            center: [view.center[0] / k as f32, view.center[1] / k as f32],
+            center: proxy_center,
             shadow: {
                 let t = crate::theme::Tokens::get(&ctx);
                 !t.bevel && !t.pro && drop_shadow
@@ -1800,22 +1858,27 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
     } else {
+        // Software canvas still previews the same command, rather than silently showing the
+        // unrotated document. A rotated proxy may be wider or taller than the source.
+        let preview = cpu_filter_preview(app, &ctx, idx, output);
+        let drawn_rect = preview.as_ref().map_or(img_rect, |(_, size, k)| filter_preview_rect(img_rect, *size, *k, view.zoom));
         if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
-            painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(img_rect, 0));
+            painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(drawn_rect, 0));
         }
         match app.session.prefs().transparency_and_gamut.square() {
             Some(square) => {
                 let checker_id = checker(app, &ctx);
-                let tiles = img_rect.size() / (2.0 * square);
-                painter.image(checker_id, img_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
+                let tiles = drawn_rect.size() / (2.0 * square);
+                painter.image(checker_id, drawn_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
             }
             None => {
-                painter.rect_filled(img_rect, 0.0, Color32::WHITE);
+                painter.rect_filled(drawn_rect, 0.0, Color32::WHITE);
             }
         }
-        if let Some((tex, _scale)) = ensure_texture(app, &ctx, idx, output) {
+        let texture = preview.map(|(id, _, _)| id).or_else(|| ensure_texture(app, &ctx, idx, output).map(|(id, _)| id));
+        if let Some(tex) = texture {
             let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
-            painter.image(tex, img_rect, uv, Color32::WHITE);
+            painter.image(tex, drawn_rect, uv, Color32::WHITE);
         }
     }
     // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
@@ -3822,5 +3885,59 @@ mod transform_controls_tests {
         assert!(transform_controls_hit(r, pos2(60.0, 18.0)));
         assert!(!transform_controls_hit(r, r.center()));
         assert!(!transform_controls_hit(r, pos2(60.0, 4.0)));
+    }
+}
+#[cfg(test)]
+mod arbitrary_rotation_live_preview_tests {
+    use super::*;
+
+    #[test]
+    fn arbitrary_rotation_preview_works_without_a_gpu_and_respects_preview_toggle() {
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", serde_json::json!({"width": 96, "height": 48})).unwrap();
+        let mut app = PhotocraftApp::new(session, crate::Services::default());
+        assert!(app.gpu.is_none());
+        crate::filter_dialog::open(&mut app, "image.rotation.arbitrary").unwrap();
+        let dialog = app.ui.dialogs.last_mut().unwrap();
+        dialog.fields.insert("angle".into(), serde_json::json!(90.0));
+        dialog.fields.insert("direction".into(), serde_json::json!("cw"));
+        let (factor, _key) = ensure_filter_preview(&mut app, 0).expect("preview on CPU");
+        assert_eq!(factor, 1);
+        let rotated = app.filter_preview.as_ref().unwrap().result.as_ref().unwrap();
+        assert_eq!((rotated.size.width, rotated.size.height), (48, 96));
+        assert_eq!((app.session.active().unwrap().doc.size.width, app.session.active().unwrap().doc.size.height), (96, 48));
+        app.ui.dialogs.last_mut().unwrap().fields.insert("__preview".into(), serde_json::json!(false));
+        assert!(ensure_filter_preview(&mut app, 0).is_none(), "disabling Preview restores the original document");
+    }
+
+    #[test]
+    fn rotated_proxy_centres_stay_anchored_under_pan_and_downsampling() {
+        for k in [1, 2, 4] {
+            let source = [120, 80];
+            let rotated = [80 / k, 120 / k];
+            let centered = filter_preview_view(source, rotated, [60.0, 40.0], k);
+            assert_eq!(centered, [rotated[0] as f32 / 2.0, rotated[1] as f32 / 2.0]);
+            let panned = filter_preview_view(source, rotated, [72.0, 28.0], k);
+            assert_eq!(panned, [rotated[0] as f32 / 2.0 + 12.0 / k as f32, rotated[1] as f32 / 2.0 - 12.0 / k as f32]);
+        }
+    }
+
+    #[test]
+    fn rotation_preview_expands_around_the_original_canvas_centre() {
+        let source = Rect::from_min_size(pos2(70.0, 80.0), vec2(200.0, 100.0));
+        let rotated = filter_preview_rect(source, [50, 100], 2, 2.0);
+        assert_eq!(rotated.center(), source.center());
+        assert_eq!(rotated.size(), vec2(200.0, 400.0));
+        let original = filter_preview_rect(source, [100, 50], 2, 1.0);
+        assert_eq!(original, source);
+    }
+
+    #[test]
+    fn unchanged_proxy_keeps_existing_view_coordinates() {
+        let source = [257, 129];
+        let result = [65, 33]; // ceil-divided proxy dimensions
+        let pan = [160.0, 70.0];
+        let centre = filter_preview_view(source, result, pan, 4);
+        assert_eq!(centre, [result[0] as f32 / 2.0 + (pan[0] - 128.5) / 4.0, result[1] as f32 / 2.0 + (pan[1] - 64.5) / 4.0]);
     }
 }
