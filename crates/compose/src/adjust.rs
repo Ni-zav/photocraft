@@ -203,7 +203,10 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             }
         }),
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. }
+            if *size >= 2
+                && (*size as usize).checked_pow(3).and_then(|count| count.checked_mul(3)).is_some_and(|needed| table.len() >= needed) =>
+        {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
             for (i, p) in buf.px.iter_mut().enumerate() {
                 if p[3] <= 0.0 {
@@ -700,6 +703,38 @@ mod lookup_tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn malformed_color_lookup_dimensions_are_not_evaluated() {
+        let original = [0.2, 0.4, 0.7, 1.0];
+        for size in [0, 1, 3, 4_194_304, u32::MAX] {
+            // 24 numbers fit a 2³ LUT, not the advertised dimensions above.
+            let lookup = Adjustment::ColorLookup {
+                name: "malformed".into(),
+                lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+                size,
+                tetrahedral: false,
+                dither: false,
+            };
+            let mut buf = Buffer { rect: photocraft_geom::Rect::new(0, 0, 1, 1), px: vec![original] };
+            apply(&lookup, &mut buf);
+            assert_eq!(buf.px[0], original, "size={size}");
+        }
+    }
+
+    #[test]
+    fn well_formed_color_lookup_still_applies() {
+        let lookup = Adjustment::ColorLookup {
+            name: "black".into(),
+            lut: Some(std::sync::Arc::new(vec![0.0; 24])),
+            size: 2,
+            tetrahedral: false,
+            dither: false,
+        };
+        let mut buf = Buffer { rect: photocraft_geom::Rect::new(0, 0, 1, 1), px: vec![[0.2, 0.4, 0.7, 1.0]] };
+        apply(&lookup, &mut buf);
+        assert_eq!(buf.px[0], [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
