@@ -521,6 +521,11 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)) {
         d.opts.size = (d.opts.size * 1.1).min(15000.0);
     }
+    // Shift+C selects the dedicated counterclockwise tool, while simply holding
+    // Shift or Cmd during a clockwise dab reverses that stroke temporarily.
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::C)) {
+        d.opts.tool = LiquifyTool::TwirlCcw;
+    }
     let tools = [
         (egui::Key::W, LiquifyTool::ForwardWarp),
         (egui::Key::R, LiquifyTool::Reconstruct),
@@ -563,6 +568,7 @@ fn shortcut(t: LiquifyTool) -> &'static str {
         LiquifyTool::Reconstruct => "R",
         LiquifyTool::Smooth => "E",
         LiquifyTool::TwirlCw => "C",
+        LiquifyTool::TwirlCcw => "Shift+C",
         LiquifyTool::Pucker => "S",
         LiquifyTool::Bloat => "B",
         LiquifyTool::PushLeft => "O",
@@ -625,6 +631,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             let tip = match tool {
                 // The lasso works on the same freeze mask as Freeze/Thaw.
                 LiquifyTool::LassoMask => tl!("Freeze Lasso: drag to freeze an area, Alt-drag to thaw it (L)").to_string(),
+                LiquifyTool::TwirlCw | LiquifyTool::TwirlCcw => format!("{} ({}; Shift/Cmd: reverse)", tl!(tool.label()), shortcut(tool)),
                 _ => format!("{} ({})", tl!(tool.label()), shortcut(tool)),
             };
             if crate::icons::button(&mut strip, tool_icon(tool), 34.0, d.opts.tool == tool, &tip).clicked() {
