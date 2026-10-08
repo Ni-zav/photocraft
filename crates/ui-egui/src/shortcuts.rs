@@ -300,9 +300,7 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // it must win over the regular Edit › Clear shortcut, which edits document pixels.
     if crate::lasso_ui::waiting_for_vertex(app) {
         let mods = ctx.input(|i| i.modifiers);
-        if !mods.command && !mods.ctrl && !mods.shift
-            && ctx.input_mut(|i| i.consume_key(mods, Key::Backspace) || i.consume_key(mods, Key::Delete))
-        {
+        if !mods.command && !mods.ctrl && !mods.shift && ctx.input_mut(|i| i.consume_key(mods, Key::Backspace) || i.consume_key(mods, Key::Delete)) {
             crate::lasso_ui::undo_last_vertex(app);
             return;
         }
