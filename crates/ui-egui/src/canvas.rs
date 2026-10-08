@@ -951,7 +951,9 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
             let buf = photocraft_compose::flatten(r);
             let t1 = crate::gpu_canvas::now_ms();
             let (display, _) = canvas_display(app, &doc, None);
-            app.gpu.as_ref()?.upload_buffer_full(key, &texture_buffer(display.as_deref(), &buf), doc.depth);
+            if let Some(gpu) = app.gpu.as_ref() {
+                gpu.upload_buffer_full(key, &texture_buffer(display.as_deref(), &buf), doc.depth);
+            }
             app.perf.record("filter-preview", r.size.area(), t1 - t0, crate::gpu_canvas::now_ms() - t1);
         }
         app.filter_preview = Some(crate::filter_dialog::FilterPreview { doc: doc_id, revision, hash, k, result });
@@ -969,6 +971,36 @@ fn filter_preview_view(source_size: [u32; 2], result_size: [u32; 2], center: [f3
         (center[0] - source_size[0] as f32 * 0.5) / k + result_size[0] as f32 * 0.5,
         (center[1] - source_size[1] as f32 * 0.5) / k + result_size[1] as f32 * 0.5,
     ]
+}
+
+/// CPU fallback for filter previews, including arbitrary rotation. The filter engine
+/// runs on a downsampled copy, then we cache the resulting egui texture by parameter/revision
+/// hash. No GPU canvas is required (e.g. software rendering, lost GPU, flipped views).
+fn cpu_filter_preview(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, output: Option<u32>) -> Option<(egui::TextureId, [u32; 2], u32)> {
+    let (k, _) = ensure_filter_preview(app, idx)?;
+    let p = app.filter_preview.as_ref()?;
+    let result = p.result.clone()?;
+    let (display, display_key) = canvas_display(app, &result, output);
+    let key = p.hash ^ display_key;
+    let id = egui::Id::new(("cpu-filter-preview", ctx.viewport_id(), idx, output));
+    let cached: Option<(u64, egui::TextureHandle)> = ctx.data(|data| data.get_temp(id));
+    let handle = if let Some((old_key, tex)) = cached.filter(|(old, _)| *old == key) {
+        let _ = old_key;
+        tex
+    } else {
+        let pixels = photocraft_compose::flatten(&result);
+        let image = display_image(display.as_deref(), &pixels);
+        let texture = ctx.load_texture(format!("filter-preview-{idx}-{}", output.unwrap_or(0)), image, TextureOptions::LINEAR);
+        ctx.data_mut(|data| data.insert_temp(id, (key, texture.clone())));
+        texture
+    };
+    Some((handle.id(), [result.size.width, result.size.height], k))
+}
+
+/// The preview's pixel dimensions are scaled back to document points, but its
+/// *centre* stays anchored to the unrotated document during the dialog.
+fn filter_preview_rect(source_rect: Rect, result_size: [u32; 2], factor: u32, zoom: f32) -> Rect {
+    Rect::from_center_size(source_rect.center(), vec2(result_size[0] as f32, result_size[1] as f32) * factor.max(1) as f32 * zoom)
 }
 
 /// The document pixels a (non-rotated) view shows, with a margin for filtering.
@@ -1827,22 +1859,27 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
     } else {
+        // Software canvas still previews the same command, rather than silently showing the
+        // unrotated document. A rotated proxy may be wider or taller than the source.
+        let preview = cpu_filter_preview(app, &ctx, idx, output);
+        let drawn_rect = preview.as_ref().map_or(img_rect, |(_, size, k)| filter_preview_rect(img_rect, *size, *k, view.zoom));
         if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
-            painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(img_rect, 0));
+            painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(drawn_rect, 0));
         }
         match app.session.prefs().transparency_and_gamut.square() {
             Some(square) => {
                 let checker_id = checker(app, &ctx);
-                let tiles = img_rect.size() / (2.0 * square);
-                painter.image(checker_id, img_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
+                let tiles = drawn_rect.size() / (2.0 * square);
+                painter.image(checker_id, drawn_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
             }
             None => {
-                painter.rect_filled(img_rect, 0.0, Color32::WHITE);
+                painter.rect_filled(drawn_rect, 0.0, Color32::WHITE);
             }
         }
-        if let Some((tex, _scale)) = ensure_texture(app, &ctx, idx, output) {
+        let texture = preview.map(|(id, _, _)| id).or_else(|| ensure_texture(app, &ctx, idx, output).map(|(id, _)| id));
+        if let Some(tex) = texture {
             let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
-            painter.image(tex, img_rect, uv, Color32::WHITE);
+            painter.image(tex, drawn_rect, uv, Color32::WHITE);
         }
     }
     // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
@@ -3865,6 +3902,16 @@ mod arbitrary_rotation_live_preview_tests {
             let panned = filter_preview_view(source, rotated, [72.0, 28.0], k);
             assert_eq!(panned, [rotated[0] as f32 / 2.0 + 12.0 / k as f32, rotated[1] as f32 / 2.0 - 12.0 / k as f32]);
         }
+    }
+
+    #[test]
+    fn rotation_preview_expands_around_the_original_canvas_centre() {
+        let source = Rect::from_min_size(pos2(70.0, 80.0), vec2(200.0, 100.0));
+        let rotated = filter_preview_rect(source, [50, 100], 2, 2.0);
+        assert_eq!(rotated.center(), source.center());
+        assert_eq!(rotated.size(), vec2(200.0, 400.0));
+        let original = filter_preview_rect(source, [100, 50], 2, 1.0);
+        assert_eq!(original, source);
     }
 
     #[test]
