@@ -525,6 +525,9 @@ fn move_selected_layers_keeps_selected_group_children_and_supports_above_below()
     let c = s.execute("layer.new.layer", json!({"name": "C"})).unwrap()["layer"].as_u64().unwrap();
     let group = s.execute("layer.new.group", json!({"name": "G"})).unwrap()["layer"].as_u64().unwrap();
     s.execute("layer.moveTo", json!({"layer": b, "target": group, "position": "into"})).unwrap();
+    // The new group goes above the active layer: make it G (not B inside it), so Target is a
+    // root-level sibling.
+    s.execute("layer.select", json!({"layer": group})).unwrap();
     let target = s.execute("layer.new.group", json!({"name": "Target"})).unwrap()["layer"].as_u64().unwrap();
 
     let r = s.execute("layer.moveTo", json!({"layers": [b, group, a], "target": target, "position": "into"})).unwrap();
