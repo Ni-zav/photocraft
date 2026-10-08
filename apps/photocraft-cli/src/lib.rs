@@ -489,8 +489,17 @@ mod missing_font_warning_tests {
         let params = json!({"x": 6, "y": 38, "text": "Missing font warning", "font": family, "size": 20}).to_string();
 
         let (code, stdout, stderr) = invoke(&[
-            "run", "--new", r#"{"width":256,"height":96,"background":"white"}"#, "--cmd", "type.create", "--params", &params,
-            "--cmd", "type.resolveMissingFonts", "--out", &native_str,
+            "run",
+            "--new",
+            r#"{"width":256,"height":96,"background":"white"}"#,
+            "--cmd",
+            "type.create",
+            "--params",
+            &params,
+            "--cmd",
+            "type.resolveMissingFonts",
+            "--out",
+            &native_str,
         ]);
         assert_eq!(code, 0, "{stderr}");
         assert_eq!(stderr.matches(family).count(), 1, "multi-command runs should not repeat the same missing font warning");
