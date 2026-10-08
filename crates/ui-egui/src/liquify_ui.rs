@@ -193,9 +193,12 @@ impl LiquifyDialog {
         self.mask_dirty |= mask;
     }
 
-    fn begin(&mut self, p: [f64; 3], now: f64) {
+    fn begin(&mut self, p: [f64; 3], now: f64, tool: LiquifyTool) {
         self.redo.clear();
         let mut s = self.template();
+        // A modifier reverses Twirl for the entire stroke. Keep the actual tool in
+        // the serialized stroke so replay/undo never depend on current key state.
+        s.tool = tool;
         s.points.push(p.to_vec());
         let t0 = crate::gpu_canvas::now_ms();
         let d = self.field.stroke_begin(&s, p);
@@ -441,6 +444,19 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     Ok(d.describe())
 }
 
+/// Photoshop-style temporary reverse: Shift or Cmd/Ctrl pressed when starting a Twirl
+/// stroke selects the opposite direction. Other Liquify tools never change direction.
+fn twirl_tool_for_press(tool: LiquifyTool, mods: egui::Modifiers) -> LiquifyTool {
+    if !mods.shift && !mods.command {
+        return tool;
+    }
+    match tool {
+        LiquifyTool::TwirlCw => LiquifyTool::TwirlCcw,
+        LiquifyTool::TwirlCcw => LiquifyTool::TwirlCw,
+        _ => tool,
+    }
+}
+
 /// Pointer in document coordinates (from the preview or the control channel). Alt = subtract
 /// from the freeze mask (lasso only); Shift adds, same as no modifier.
 pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
@@ -451,7 +467,8 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
             if d.opts.tool == LiquifyTool::LassoMask {
                 d.lasso = Some((mods.alt, vec![[x, y]]));
             } else {
-                d.begin([x, y, f64::from(pressure)], now);
+                let effective = twirl_tool_for_press(d.opts.tool, mods);
+                d.begin([x, y, f64::from(pressure)], now, effective);
             }
         }
         ToolEvent::Move { x, y, pressure } => {
