@@ -49,6 +49,9 @@ pub fn margin(layer: &Layer) -> i32 {
         };
         if r.is_finite() {
             m = m.max(r);
+        } else if r.is_sign_positive() && !r.is_nan() {
+            // Positive overflow has the same capped reach as an enormous finite effect.
+            m = MAX_REACH;
         }
     }
     // Bounded so malformed values can't request huge buffers; effects that
@@ -906,7 +909,7 @@ pub struct BevelGeom {
 }
 
 pub fn bevel_geom(b: &Bevel) -> BevelGeom {
-    let size = b.size.max(1.0);
+    let size = bounded_tent_width(b.size);
     let emboss = matches!(b.style, BevelStyle::Emboss | BevelStyle::PillowEmboss);
     let paint = match b.style {
         BevelStyle::OuterBevel => BevelPaint::Outer,
@@ -932,7 +935,7 @@ pub fn bevel_geom(b: &Bevel) -> BevelGeom {
 /// width. Chisel: linear ramps of the exact distance to the edge (size wide; emboss styles
 /// straddle the edge), slightly blurred for Chisel Soft. Soften blurs the result.
 fn bevel_height(shape: &Map, b: &Bevel, g: &BevelGeom, tex: &TextureCtx, patterns: &PreparedPatterns<'_>) -> Map {
-    let size = b.size.max(1.0);
+    let size = bounded_tent_width(b.size);
     let mut h = if b.technique == BevelTechnique::Smooth {
         let mut h = shape.clone();
         tent(&mut h, g.width);
@@ -1738,7 +1741,7 @@ mod tests {
                 &PreparedPatterns::new(&[], PREPARED_PATTERN_BYTES),
             );
             assert_eq!(maps.len(), 2, "Bevel size {size}");
-            assert!(maps.iter().all(|map| map.v.len() == shape.v.len()));
+            assert!(maps.iter().all(|map| map.v.len() == shape.v.len() && map.v.iter().all(|v| v.is_finite())));
         }
     }
 
