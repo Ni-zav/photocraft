@@ -70,7 +70,8 @@ fn snap_on(app: &PhotocraftApp) -> bool {
 /// Targets of the active document (smart = layer alignments only).
 fn build(app: &PhotocraftApp, exclude: &[LayerId], smart: bool) -> SnapTargets {
     let Some(st) = app.session.active() else { return SnapTargets::default() };
-    let opts = if smart { SnapOptions { guides: false, grid: false, layers: true, document: true, selection: false, grid_step: [0.0; 2] } } else { options(app) };
+    let opts =
+        if smart { SnapOptions { guides: false, grid: false, layers: true, document: true, selection: false, grid_step: [0.0; 2] } } else { options(app) };
     let t = SnapTargets::from_document(&st.doc, &opts, exclude);
     if smart { t.filtered(SnapKind::is_smart) } else { t }
 }

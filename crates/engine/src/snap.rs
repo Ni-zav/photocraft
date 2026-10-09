@@ -235,10 +235,12 @@ impl SnapTargets {
                 let list = if vertical { &self.x } else { &self.y };
                 let hit = list.iter().copied().filter(|t| (t.pos - moved).abs() < 1e-6).min_by_key(|t| u8::from(t.kind != SnapKind::Guide));
                 let hit = hit.or_else(|| {
-                    self.grid.filter(|steps| {
-                        let step = steps[axis];
-                        ((moved / step).round() * step - moved).abs() < 1e-6
-                    }).map(|_| Target { pos: moved, kind: SnapKind::Grid, span: other })
+                    self.grid
+                        .filter(|steps| {
+                            let step = steps[axis];
+                            ((moved / step).round() * step - moved).abs() < 1e-6
+                        })
+                        .map(|_| Target { pos: moved, kind: SnapKind::Grid, span: other })
                 });
                 if let Some(t) = hit {
                     lines.push(line(vertical, t, other.0, other.1));
