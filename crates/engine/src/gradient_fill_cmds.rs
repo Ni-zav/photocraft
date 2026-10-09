@@ -303,7 +303,8 @@ pub fn new_layer(s: &Session, doc: &Document, p: &Value) -> Result<Layer> {
         return Err(bad(CMD, "the document is empty"));
     }
     let (angle, scale, offset) = gf::from_handles(style, from, to, canvas, 0.0);
-    let fill = Fill::Gradient { stops, angle, scale: clamp_scale(scale), style, reverse, opacity_stops, midpoints: Vec::new(), offset, dither, align: false };
+    let mut fill = Fill::Gradient { stops, angle, scale: clamp_scale(scale), style, reverse, opacity_stops, midpoints: Vec::new(), offset, dither, align: false };
+    crate::color_cmds::authored_fill_in_document(s, doc, &mut fill)?;
     let mut l = Layer::new(doc.next_layer_name("Gradient Fill"), LayerContent::Fill(fill));
     l.opacity = opacity;
     l.blend = blend;
@@ -339,7 +340,8 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
     describe(s, id)
 }
 
-fn replace_fill(s: &mut Session, id: LayerId, label: &str, new: Fill) -> Result<()> {
+fn replace_fill(s: &mut Session, id: LayerId, label: &str, mut new: Fill) -> Result<()> {
+    crate::color_cmds::authored_fill_in_document(s, &s.active().ok_or(EngineError::NoDocument)?.doc, &mut new)?;
     s.edit(label, |doc, _| {
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         l.content = LayerContent::Fill(new);

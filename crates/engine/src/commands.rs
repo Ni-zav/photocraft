@@ -742,8 +742,10 @@ fn build() -> Vec<CommandSpec> {
             has_doc,
             |s, p| {
                 let c = color_param(p, "color", s.tools.foreground);
+                let mut fill = Fill::Solid(Color::rgba(c[0], c[1], c[2], c[3]));
+                crate::color_cmds::authored_fill_in_document(s, &s.active().ok_or(EngineError::NoDocument)?.doc, &mut fill)?;
                 let id = s.edit("New Color Fill Layer", |doc, active| {
-                    let mut l = Layer::new(doc.next_layer_name("Color Fill"), LayerContent::Fill(Fill::Solid(Color::rgba(c[0], c[1], c[2], c[3]))));
+                    let mut l = Layer::new(doc.next_layer_name("Color Fill"), LayerContent::Fill(fill));
                     mask_new_layer(doc, &mut l, p, "layer.newFillLayer.solidColor")?;
                     let id = doc.insert_above(*active, l);
                     *active = Some(id);
@@ -765,14 +767,15 @@ fn build() -> Vec<CommandSpec> {
                 let angle = f32_or(p, "angle", 90.0);
                 let style = crate::layer_style::gradient_style(p.get("style").and_then(Value::as_str).unwrap_or("linear"));
                 let reverse = p.get("reverse").and_then(Value::as_bool).unwrap_or(false);
+                let mut fill = Fill::gradient(
+                    vec![(0.0, Color::rgba(a[0], a[1], a[2], a[3])), (1.0, Color::rgba(b[0], b[1], b[2], b[3]))],
+                    angle,
+                    1.0,
+                    style,
+                    reverse,
+                );
+                crate::color_cmds::authored_fill_in_document(s, &s.active().ok_or(EngineError::NoDocument)?.doc, &mut fill)?;
                 let id = s.edit("New Gradient Fill Layer", |doc, active| {
-                    let fill = Fill::gradient(
-                        vec![(0.0, Color::rgba(a[0], a[1], a[2], a[3])), (1.0, Color::rgba(b[0], b[1], b[2], b[3]))],
-                        angle,
-                        1.0,
-                        style,
-                        reverse,
-                    );
                     let mut l = Layer::new(doc.next_layer_name("Gradient Fill"), LayerContent::Fill(fill));
                     mask_new_layer(doc, &mut l, p, "layer.newFillLayer.gradient")?;
                     let id = doc.insert_above(*active, l);

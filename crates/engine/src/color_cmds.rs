@@ -574,6 +574,27 @@ fn convert_color(c: &mut Color, from: ColorMode, to: ColorMode, t: &Transform) {
     c.c = nc;
 }
 
+/// Convert newly authored RGB fill colours into a Gray/CMYK document's ICC space.
+/// Stops already expressed in document space are left alone when only one is edited.
+pub(crate) fn authored_fill_in_document(s: &Session, doc: &Document, fill: &mut Fill) -> Result<()> {
+    if !matches!(doc.mode, ColorMode::Grayscale | ColorMode::Cmyk) {
+        return Ok(());
+    }
+    let needs_conversion = match fill {
+        Fill::Solid(c) => c.mode == ColorMode::Rgb,
+        Fill::Gradient { stops, .. } => stops.iter().any(|(_, c)| c.mode == ColorMode::Rgb),
+        Fill::Pattern { .. } => false,
+    };
+    if !needs_conversion {
+        return Ok(());
+    }
+    let src = s.color.working(ColorMode::Rgb);
+    let dst = document_profile(doc);
+    let t = Transform::new(&src, &dst, s.color.settings.intent(), s.color.settings.bpc).map_err(cms_err)?;
+    convert_fill(fill, ColorMode::Rgb, doc.mode, &t);
+    Ok(())
+}
+
 fn convert_fill(f: &mut Fill, from: ColorMode, to: ColorMode, t: &Transform) {
     match f {
         Fill::Solid(c) => convert_color(c, from, to, t),
@@ -1112,6 +1133,54 @@ mod tests {
         assert_eq!(info["profile"]["colorSpace"], "Cmyk");
         assert!(info["builtins"].as_array().unwrap().len() >= 10);
         assert!(s.execute("edit.convertToProfile", json!({"profile": "nope"})).is_err());
+    }
+
+
+    #[test]
+    fn new_fill_layers_convert_authored_rgb_to_gray_and_cmyk() {
+        for (mode, want) in [("gray", ColorMode::Grayscale), ("cmyk", ColorMode::Cmyk)] {
+            for depth in [8, 16] {
+                let mut s = session(mode, depth);
+                s.execute("layer.newFillLayer.solidColor", json!({"color": "#0000ff"})).unwrap();
+                let l = doc(&s).layers.last().unwrap();
+                let LayerContent::Fill(Fill::Solid(color)) = &l.content else { panic!("expected solid fill") };
+                assert_eq!(color.mode, want, "{mode} {depth} solid layer");
+                let px = photocraft_compose::flatten(doc(&s)).px[10 * 64 + 10];
+                if mode == "gray" {
+                    assert!((px[0] - px[1]).abs() < 1e-4 && (px[1] - px[2]).abs() < 1e-4, "{px:?}");
+                    assert!((px[0] - 0.114).abs() < 0.03, "{px:?}");
+                } else {
+                    assert!(px[0] > 0.05 && px[1] > 0.05, "CMYK blue was converted: {px:?}");
+                }
+                s.execute("layer.newFillLayer.gradient", json!({"from": "#ff0000", "to": "#0000ff"})).unwrap();
+                let LayerContent::Fill(Fill::Gradient { stops, .. }) = &doc(&s).layers.last().unwrap().content else { panic!("expected gradient") };
+                assert!(stops.iter().all(|(_, c)| c.mode == want), "{mode} {depth} gradient stops");
+                s.execute("edit.undo", json!({})).unwrap();
+                assert!(matches!(doc(&s).layers.last().unwrap().content, LayerContent::Fill(Fill::Solid(_))));
+                s.execute("edit.redo", json!({})).unwrap();
+                assert!(matches!(doc(&s).layers.last().unwrap().content, LayerContent::Fill(Fill::Gradient { .. })));
+            }
+        }
+    }
+
+    #[test]
+    fn live_gradient_edits_keep_existing_document_mode_stops() {
+        for (mode, want) in [("gray", ColorMode::Grayscale), ("cmyk", ColorMode::Cmyk)] {
+            let mut s = session(mode, 8);
+            s.execute("gradient.fill.create", json!({"from": [0, 0], "to": [32, 0], "stops": [[0, "#0000ff"], [1, "#ff0000"]]})).unwrap();
+            let check = |s: &Session| {
+                let l = doc(s).layers.last().unwrap();
+                let LayerContent::Fill(Fill::Gradient { stops, .. }) = &l.content else { panic!("expected gradient") };
+                assert!(stops.iter().all(|(_, c)| c.mode == want), "{mode} gradient stops: {stops:?}");
+            };
+            check(&s);
+            s.execute("gradient.fill.set", json!({"stops": [[0, "#00ff00"], [1, "#0000ff"]]})).unwrap();
+            check(&s);
+            s.execute("edit.undo", json!({})).unwrap();
+            check(&s);
+            s.execute("edit.redo", json!({})).unwrap();
+            check(&s);
+        }
     }
 
     #[test]
