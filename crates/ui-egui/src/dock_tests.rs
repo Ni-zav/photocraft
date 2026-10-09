@@ -378,6 +378,81 @@ fn clicking_around_the_ui_keeps_the_panels_put() {
     }
 }
 
+
+#[test]
+fn closing_tabs_keeps_stable_names_across_themes_and_workspace_round_trips() {
+    let mut dock = DockLayout::default();
+    // In Pro the first Color group tab is Color; in Studio it is Swatches.
+    dock.hide_tab(Group::Color, 0, true);
+    assert_eq!(dock.visible_tabs(Group::Color, true).iter().map(|(_, n)| *n).collect::<Vec<_>>(), vec!["Swatches", "Gradients", "Patterns"]);
+    assert_eq!(dock.visible_tabs(Group::Color, false).iter().map(|(_, n)| *n).collect::<Vec<_>>(), vec!["Swatches", "Gradients", "Patterns"]);
+    dock.hide_tab(Group::Color, 999, true);
+    assert_eq!(dock.hidden_tabs[&Group::Color], vec!["Color"]);
+    let saved = serde_json::to_value(&dock).unwrap();
+    let mut restored: DockLayout = serde_json::from_value(saved).unwrap();
+    assert_eq!(restored, dock);
+    // Window › Color (Studio index 1) brings back precisely that tab.
+    restored.show_tab(Group::Color, 1, false);
+    assert!(restored.hidden_tabs.is_empty());
+    assert_eq!(restored.visible_tabs(Group::Color, false).len(), 4);
+}
+
+fn right_click_tab(h: &mut Harness<'static, PhotocraftApp>, group: Group, original_index: usize) {
+    let p = last_strips(&h.ctx)
+        .into_iter()
+        .find(|s| s.group == group)
+        .and_then(|s| s.tabs.into_iter().find(|(i, _)| *i == original_index))
+        .map(|(_, r)| r.center())
+        .expect("requested dock tab visible");
+    h.hover_at(p);
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
+    h.step();
+    h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+}
+
+/// #1753: both themes offer Close for the clicked tab and Close Tab Group independently.
+/// Closing the last tab hides its group; Window restores a hidden tab.
+#[test]
+fn panel_tab_context_menu_closes_one_tab_or_its_group() {
+    use egui_kittest::kittest::Queryable;
+
+    for theme in [ThemeKind::ProMedium, ThemeKind::Studio] {
+        let (app, _, _) = app_with_layers();
+        let mut h = harness(app, vec2(1300.0, 850.0), theme);
+        // Close Properties, leaving Adjustments in the same group and selecting it.
+        right_click_tab(&mut h, Group::Properties, 0);
+        h.get_by_label("Close").click();
+        h.run_steps(3);
+        assert!(h.state().ui.panels.properties, "{theme:?}: closing one tab keeps the group");
+        assert_eq!(h.state().ui.dock_tabs.properties, 1);
+        assert_eq!(h.state().ui.dock.visible_tabs(Group::Properties, is_pro(theme)), vec![(1, "Adjustments")]);
+        assert_eq!(last_strips(&h.ctx).iter().find(|s| s.group == Group::Properties).unwrap().tabs.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![1]);
+
+        // Close the only remaining tab: hide this group, not all other dock groups.
+        right_click_tab(&mut h, Group::Properties, 1);
+        h.get_by_label("Close").click();
+        h.run_steps(3);
+        assert!(!h.state().ui.panels.properties);
+        assert!(h.state().ui.panels.layers && h.state().ui.panels.color);
+
+        // Window › Properties reopens only the requested tab; hidden tabs stay hidden.
+        let ctx = h.ctx.clone();
+        crate::menus::invoke(h.state_mut(), &ctx, "window.panel.properties", json!({})).unwrap();
+        h.run_steps(3);
+        assert!(h.state().ui.panels.properties && !h.state().ui.dock.is_collapsed(Group::Properties));
+        assert_eq!(h.state().ui.dock.visible_tabs(Group::Properties, is_pro(theme)), vec![(0, "Properties")]);
+
+        // A tab's Close Tab Group closes the entire group without hiding its one tab.
+        right_click_tab(&mut h, Group::Properties, 0);
+        h.get_by_label("Close Tab Group").click();
+        h.run_steps(3);
+        assert!(!h.state().ui.panels.properties);
+        assert_eq!(h.state().ui.dock.visible_tabs(Group::Properties, is_pro(theme)), vec![(0, "Properties")]);
+    }
+}
+
 fn is_pro(theme: ThemeKind) -> bool {
     matches!(theme, ThemeKind::Pro | ThemeKind::ProMedium)
 }
