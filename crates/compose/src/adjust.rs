@@ -218,10 +218,9 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
     }
 }
 
-/// Per-channel LUTs of a Levels or Curves adjustment, each channel's record composed with the
-/// master (Photoshop applies the channel curve first, then the composite). Four rows: the three
-/// `per_channel` channels then black (identity unless the space is CMYK). In Lab there is no
-/// composite record, so the master is ignored.
+/// Per-channel LUTs of a Levels or Curves adjustment. The master record is applied first,
+/// followed by each channel's record. Four rows: the three `per_channel` channels then black
+/// (identity unless the space is CMYK). In Lab there is no composite record, so the master is ignored.
 pub fn tone_luts(adj: &Adjustment) -> [Vec<f32>; 4] {
     tone_luts_q(adj, None)
 }
@@ -239,7 +238,10 @@ pub fn tone_luts_q(adj: &Adjustment, quantum: Option<f32>) -> [Vec<f32>; 4] {
         }
         Adjustment::Curves { master, per_channel, space, black } => {
             let m = if *space == ToneSpace::Lab { curve_lut(&[]) } else { curve_lut(master) };
-            let row = |c: &[CurvePoint]| curve_lut(c).iter().map(|&v| lut(&m, v)).collect();
+            let row = |c: &[CurvePoint]| {
+                let channel = curve_lut(c);
+                m.iter().map(|&v| lut(&channel, v)).collect()
+            };
             [row(&per_channel[0]), row(&per_channel[1]), row(&per_channel[2]), row(if *space == ToneSpace::Cmyk { black } else { &[] })]
         }
         _ => std::array::from_fn(|_| (0..LUT_SIZE).map(x).collect()),
@@ -830,6 +832,54 @@ mod tone_tests {
             apply(&a, &mut b);
             assert_eq!(b.px, ramp().px, "size {size}");
         }
+    }
+
+
+    #[test]
+    fn levels_and_curves_apply_master_before_each_channel() {
+        // These two affine tone adjustments describe the same mapping:
+        // master(x) = x / 2, then channel(x) = 1 / 2 + x / 2.
+        // The old Curves path reversed that order (0 mapped to 0.25, not 0.5).
+        let line = |a: f32, b: f32| vec![CurvePoint { input: 0.0, output: a }, CurvePoint { input: 1.0, output: b }];
+        let levels = Adjustment::Levels {
+            master: LevelsChannel { out_white: 0.5, ..Default::default() },
+            per_channel: std::array::from_fn(|_| LevelsChannel { out_black: 0.5, ..Default::default() }),
+            space: ToneSpace::Rgb,
+            black: Default::default(),
+        };
+        let curves = Adjustment::Curves {
+            master: line(0.0, 0.5),
+            per_channel: std::array::from_fn(|_| line(0.5, 1.0)),
+            space: ToneSpace::Rgb,
+            black: Vec::new(),
+        };
+        for depth in [None, Some(SampleType::U8), Some(SampleType::U16), Some(SampleType::F32)] {
+            let ll = tone_luts_depth(&levels, depth);
+            let cl = tone_luts_depth(&curves, depth);
+            for channel in 0..3 {
+                for index in [0, LUT_SIZE / 4, LUT_SIZE / 2, 3 * LUT_SIZE / 4, LUT_SIZE - 1] {
+                    assert!(
+                        (ll[channel][index] - cl[channel][index]).abs() < 0.01,
+                        "{depth:?} channel {channel} sample {index}: Levels {} vs Curves {}",
+                        ll[channel][index],
+                        cl[channel][index]
+                    );
+                }
+            }
+            assert!((cl[0][0] - 0.5).abs() < 0.01, "{depth:?}: {}", cl[0][0]);
+        }
+
+        // Lab has no composite/master tone record.
+        let mut lab = curves.clone();
+        let mut lab_without_master = curves;
+        if let Adjustment::Curves { space, .. } = &mut lab {
+            *space = ToneSpace::Lab;
+        }
+        if let Adjustment::Curves { master, space, .. } = &mut lab_without_master {
+            *space = ToneSpace::Lab;
+            *master = line(0.0, 1.0);
+        }
+        assert_eq!(tone_luts(&lab), tone_luts(&lab_without_master));
     }
 
     #[test]
