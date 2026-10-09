@@ -26,7 +26,7 @@ use crate::{PhotocraftApp, icons, widgets};
 /// Width of the picker's contents.
 pub const WIDTH: f32 = 300.0;
 /// The picker's preset list: denser than the Brushes tab's.
-const LIST: ListLayout = ListLayout { id: "brush-picker-presets", max_height: 300.0, cell: 44.0, indent: 4.0 };
+pub(crate) const LIST: ListLayout = ListLayout { id: "brush-picker-presets", max_height: 300.0, cell: 44.0, indent: 4.0 };
 
 /// What the picker asks for beyond the size and hardness edits.
 #[derive(Clone, Debug, PartialEq)]
@@ -85,7 +85,9 @@ pub fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, picks: Vec<Pick>) {
                     app.ui.brush_picker_list.renaming = Some(Renaming { group: false, name, text: String::new() });
                 }
             }
-            Pick::Import => app.open_dialog_file(),
+            Pick::Import => {
+                let _ = app.open_dialog_file();
+            }
         }
     }
 }
