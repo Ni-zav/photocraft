@@ -1407,7 +1407,7 @@ fn draw_rotate_feedback(painter: &egui::Painter, at: Pos2, angle: Option<f64>, b
     painter.circle_filled(at, 1.0, Color32::WHITE);
     let points: Vec<Pos2> = (0..=18)
         .map(|i| {
-            let rad = (0.5 + i as f32 * 4.6 / 18.0) as f32;
+            let rad = 0.5 + i as f32 * 4.6 / 18.0;
             center + vec2(rad.cos(), rad.sin()) * 7.0
         })
         .collect();
