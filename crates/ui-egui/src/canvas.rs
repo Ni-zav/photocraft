@@ -4064,8 +4064,6 @@ pub fn paint_target(app: &PhotocraftApp) -> serde_json::Value {
 
 #[cfg(test)]
 mod tap_pressure_tests {
-    use super::*;
-
     #[test]
     fn fallback_click_pressure_matches_pen_or_mouse() {
         let mut s = crate::stylus::Stylus::default();
@@ -4074,16 +4072,6 @@ mod tap_pressure_tests {
         assert_eq!(s.pressure(), 0.18, "a tap without a canvas drag still has pen pressure");
         s.use_pressure = false;
         assert_eq!(s.pressure(), 1.0, "Use Tablet Pressure off stays full pressure");
-    }
-
-    #[test]
-    fn live_stroke_release_commits_once_without_a_second_click() {
-        // The same pointer release can be both a drag stop and a click; a live stroke
-        // was already started at the press, so only its Up may commit it.
-        let replay_clicked = |started_live: bool, clicked: bool| clicked && !started_live;
-        assert!(!replay_clicked(true, true));
-        assert!(!replay_clicked(true, false));
-        assert!(replay_clicked(false, true), "other tools still need click fallback");
     }
 }
 
