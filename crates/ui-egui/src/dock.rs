@@ -180,7 +180,7 @@ impl DockLayout {
     pub fn visible_tabs(&self, group: Group, pro: bool) -> Vec<(usize, &'static str)> {
         let hidden = self.hidden_tabs.get(&group);
         group.tabs(pro).iter().copied().enumerate()
-            .filter(|(_, name)| !hidden.is_some_and(|xs| xs.iter().any(|x| x == *name)))
+            .filter(|(_, name)| !hidden.is_some_and(|xs| xs.iter().any(|x| x.as_str() == *name)))
             .collect()
     }
 
@@ -188,7 +188,7 @@ impl DockLayout {
     pub fn hide_tab(&mut self, group: Group, tab: usize, pro: bool) {
         let Some(&name) = group.tabs(pro).get(tab) else { return };
         let hidden = self.hidden_tabs.entry(group).or_default();
-        if !hidden.iter().any(|x| x == name) {
+        if !hidden.iter().any(|x| x.as_str() == name) {
             hidden.push(name.to_owned());
         }
     }
