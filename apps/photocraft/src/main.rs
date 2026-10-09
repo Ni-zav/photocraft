@@ -232,13 +232,16 @@ fn main() -> eframe::Result {
         std::process::exit(1);
     }
 
+    // A requested control server must not silently exit successfully when its token
+    // or filesystem capabilities cannot be initialized (#1816). Exit code 2 matches
+    // the rejected --control port path above.
     let control = if let Some(port) = control_port {
         let (supplied, token_file) = photocraft_automation::security::token_inputs(control_token, control_token_file);
         let token = match photocraft_automation::security::server_token(supplied.as_deref(), token_file.as_deref()) {
             Ok(token) => token,
             Err(e) => {
                 eprintln!("photocraft: cannot configure control authentication: {e}");
-                return Ok(());
+                std::process::exit(2);
             }
         };
         if let Some(path) = token_file {
@@ -252,7 +255,7 @@ fn main() -> eframe::Result {
             Ok(workspace) => workspace,
             Err(error) => {
                 eprintln!("photocraft: cannot configure automation workspace: {error}");
-                return Ok(());
+                std::process::exit(2);
             }
         };
         Some((port, token, workspace))
