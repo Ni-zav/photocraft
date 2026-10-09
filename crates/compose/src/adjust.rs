@@ -834,7 +834,6 @@ mod tone_tests {
         }
     }
 
-
     #[test]
     fn levels_and_curves_apply_master_before_each_channel() {
         // These two affine tone adjustments describe the same mapping:
@@ -867,6 +866,19 @@ mod tone_tests {
                 }
             }
             assert!((cl[0][0] - 0.5).abs() < 0.01, "{depth:?}: {}", cl[0][0]);
+
+            // Exercise the compositor's real adjustment path, not only its LUT builder.
+            for adj in [&levels, &curves] {
+                let mut pixel = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[0.0, 0.0, 0.0, 1.0]] };
+                apply_depth(adj, &mut pixel, Transfer::Srgb, depth);
+                for channel in 0..3 {
+                    assert!(
+                        (pixel.px[0][channel] - 0.5).abs() < 0.01,
+                        "{depth:?}: {adj:?} rendered {:?}",
+                        pixel.px[0]
+                    );
+                }
+            }
         }
 
         // Lab has no composite/master tone record.
