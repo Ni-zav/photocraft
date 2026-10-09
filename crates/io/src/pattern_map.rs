@@ -87,7 +87,7 @@ pub fn to_psd(p: &Pattern) -> PsdPattern {
 fn to_psd_in_mode(p: &Pattern, target: ColorMode) -> PsdPattern {
     let f = p.surface.format();
     let mode = match target {
-        ColorMode::Grayscale | ColorMode::Rgb | ColorMode::Cmyk | ColorMode::Lab => f.mode,
+        ColorMode::Grayscale | ColorMode::Rgb | ColorMode::Cmyk | ColorMode::Lab => target,
         _ => ColorMode::Rgb,
     };
     let fmt = PixelFormat::new(mode, f.sample, f.alpha);
