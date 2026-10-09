@@ -980,7 +980,7 @@ fn lut_layers<'a>(doc: &'a Document, ids: Option<&[LayerId]>) -> Result<Vec<&'a 
 
 /// Bake the chosen adjustment stack against an identity RGB lattice.
 /// Source order always follows the document stack, even if an explicit list is reversed.
-fn bake_cube_layers(doc: &Document, size: usize, title: &str, layers: &[&Layer]) -> String {
+fn bake_cube_layers(size: usize, title: &str, layers: &[&Layer]) -> String {
     let n = size;
     let (w, h) = ((n * n) as u32, n as u32);
     let mut lattice = Document::new("lut", photocraft_doc::Size::new(w, h), ColorMode::Rgb, photocraft_color::SampleType::F32);
@@ -1025,7 +1025,7 @@ fn bake_cube_layers(doc: &Document, size: usize, title: &str, layers: &[&Layer])
 /// Backwards-compatible helper for exporting all visible top-level adjustments.
 pub fn bake_cube(doc: &Document, size: usize, title: &str) -> String {
     let layers: Vec<&Layer> = doc.layers.iter().filter(|l| l.visible && matches!(l.content, LayerContent::Adjustment(_))).collect();
-    bake_cube_layers(doc, size.clamp(2, photocraft_cms::lutfile::MAX_SIZE), title, &layers)
+    bake_cube_layers(size.clamp(2, photocraft_cms::lutfile::MAX_SIZE), title, &layers)
 }
 
 /// Export either the whole visible stack (backward-compatible default), the Layers panel's
@@ -1067,7 +1067,7 @@ fn color_lookup_tables(s: &mut Session, p: &Value) -> Result<Value> {
     let layers = lut_layers(&d.doc, explicit.as_deref())?;
     let count = layers.len();
     let title = p.get("title").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
-    let cube = bake_cube_layers(&d.doc, size as usize, &title, &layers);
+    let cube = bake_cube_layers(size as usize, &title, &layers);
     match p.get("path").and_then(Value::as_str) {
         Some(path) => {
             write_file(path, cube.as_bytes())?;
