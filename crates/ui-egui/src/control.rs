@@ -889,6 +889,45 @@ mod tests {
         assert_eq!(app.session.active().unwrap().revision, rev, "opening a dialog must not edit the document");
     }
 
+    /// #1556: automated menu clicks cannot edit beneath parameter dialogs, just
+    /// like native menu clicks. Allowed view navigation and post-cancel edits survive.
+    #[test]
+    fn control_menu_obeys_dialog_modality_without_blocking_navigation() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+        let size = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.imageSize"}));
+        assert_eq!(size["ok"], true, "{size}");
+        let dialog = size["result"]["dialog"].as_u64().unwrap();
+        let before_revision = app.session.active().unwrap().revision;
+        let blocked = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.imageRotation.90cw"}));
+        assert_eq!(blocked["ok"], false, "{blocked}");
+        assert_eq!(app.session.active().unwrap().doc.size, photocraft_geom::Size::new(64, 48));
+        assert_eq!(app.session.active().unwrap().revision, before_revision);
+        assert_eq!(app.ui.dialogs.last().unwrap().id, dialog);
+
+        let zoom = app.ui.views[0].zoom;
+        let nav = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "view.zoomIn"}));
+        assert_eq!(nav["ok"], true, "{nav}");
+        assert!(app.ui.views[0].zoom > zoom, "view navigation should work under a dialog");
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": dialog}))["ok"], true);
+        let rotated = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.imageRotation.90cw"}));
+        assert_eq!(rotated["ok"], true, "{rotated}");
+        assert_eq!(app.session.active().unwrap().doc.size, photocraft_geom::Size::new(48, 64));
+
+        let blur = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "filter.blur.gaussianBlur"}));
+        assert_eq!(blur["ok"], true, "{blur}");
+        let dialog = blur["result"]["dialog"].as_u64().unwrap();
+        let before_revision = app.session.active().unwrap().revision;
+        let blocked = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.adjustments.invert"}));
+        assert_eq!(blocked["ok"], false, "{blocked}");
+        assert_eq!(app.session.active().unwrap().revision, before_revision);
+        assert_eq!(app.ui.dialogs.last().unwrap().id, dialog);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": dialog}))["ok"], true);
+        assert_eq!(call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.adjustments.invert"}))["ok"], true);
+        assert!(app.session.active().unwrap().revision > before_revision);
+    }
+
     #[test]
     fn ui_set_rejects_unknown_fields_before_changing_anything() {
         use crate::theme::ThemeKind;
