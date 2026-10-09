@@ -567,7 +567,21 @@ pub fn commit(app: &mut PhotocraftApp) {
 pub fn end_if_left(app: &mut PhotocraftApp) {
     let Some(t) = &app.ui.transform else { return };
     let Some(st) = app.session.active() else { return cancel(app) };
-    if app.transform_preview.as_ref().is_some_and(|pv| pv.doc.id != st.doc.id) || st.doc.layer(LayerId(t.layer)).is_none() {
+    if app.transform_preview.as_ref().is_some_and(|pv| pv.doc.id != st.doc.id) {
+        // Edit Contents activates a child document. Ending a pending Place transform must
+        // not cancel the placement and remove the smart object from its parent (#1797).
+        let keep_place = t.made == Some(MadeLayer::Place)
+            && app.transform_preview.as_ref().is_some_and(|pv| {
+                app.session.documents().iter().any(|d| d.doc.id == pv.doc.id && d.doc.layer(LayerId(t.layer)).is_some())
+            });
+        if keep_place {
+            // Discard only the uncommitted transform preview: the original placed layer remains.
+            app.ui.transform = None;
+            app.transform_preview = None;
+        } else {
+            cancel(app);
+        }
+    } else if st.doc.layer(LayerId(t.layer)).is_none() {
         cancel(app);
     } else if app.transform_preview.as_ref().is_some_and(|pv| pv.tool != app.ui.tool)
         || (!t.selection && st.active_layer.is_some_and(|active| active.0 != t.layer))
@@ -1662,6 +1676,32 @@ mod tests {
             made: None,
             mode: Default::default(),
         }
+    }
+
+    #[test]
+    fn editing_contents_during_a_pending_place_keeps_the_placed_smart_layer() {
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 64, "height": 48})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("edit.fill", json!({"color": "#ffaa00"})).unwrap();
+        app.run("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        app.sync_views();
+        let parent = app.session.active().unwrap().doc.id;
+        let placed = app.session.active().unwrap().active_layer.unwrap();
+        let past = app.session.active().unwrap().history.past_len();
+
+        begin_placed(&mut app, &ctx).unwrap();
+        assert_eq!(app.ui.transform.as_ref().unwrap().made, Some(MadeLayer::Place));
+        app.run("layer.smartObjects.editContents", json!({})).unwrap();
+        assert_ne!(app.session.active().unwrap().doc.id, parent);
+        end_if_left(&mut app);
+
+        assert!(app.ui.transform.is_none() && app.transform_preview.is_none());
+        let main = app.session.documents().iter().find(|d| d.doc.id == parent).unwrap();
+        assert!(matches!(main.doc.layer(placed).unwrap().content, LayerContent::Smart(_)),
+            "opening Edit Contents must not undo the placed layer");
+        assert_eq!(main.history.past_len(), past, "switching documents preserves the place history");
     }
 
     #[test]
