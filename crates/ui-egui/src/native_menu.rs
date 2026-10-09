@@ -651,7 +651,7 @@ impl NativeMenu {
 /// ([`crate::shortcuts::handle`]): while one is open, only the view navigation Photoshop keeps
 /// live under a dialog may run from the menu bar. A rotation under Image Size used to leave the
 /// dialog's stale size to be applied on OK (#1354).
-fn modal_allows(app: &PhotocraftApp, id: &str) -> bool {
+pub(crate) fn modal_allows(app: &PhotocraftApp, id: &str) -> bool {
     if app.camera_raw.is_some() {
         return false;
     }
