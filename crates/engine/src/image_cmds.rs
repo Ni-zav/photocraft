@@ -569,6 +569,39 @@ mod tests {
         &s.active().unwrap().doc
     }
 
+    /// #1544: limits are checked before a destination buffer or history step exists.
+    #[test]
+    fn image_size_rejects_oversized_resampling_without_modifying_the_document() {
+        for params in [
+            json!({"width": 300000, "height": 300000}),
+            json!({"width": 300000}),
+            json!({"width": 10000, "height": 10000, "resample": "nearest"}),
+        ] {
+            let mut s = session();
+            let previous = s.active().unwrap().doc.clone();
+            let (revision, entries) = (
+                s.active().unwrap().revision,
+                s.active().unwrap().history.entries().len(),
+            );
+            let error = s.execute("image.imageSize", params.clone()).unwrap_err();
+            assert!(matches!(error, EngineError::BadParams { .. }), "{params}: {error}");
+            assert!(error.to_string().contains("allocation budget"), "{params}: {error}");
+            let current = s.active().unwrap();
+            assert!(std::sync::Arc::ptr_eq(&current.doc, &previous), "{params}: document was cloned/edited");
+            assert_eq!((current.revision, current.history.entries().len()), (revision, entries), "{params}: added history");
+            assert_eq!(current.doc.size, Size::new(40, 20));
+        }
+
+        // A no-resample resolution edit allocates no destination pixels and stays available.
+        let mut s = session();
+        s.execute("image.imageSize", json!({"width": 300000, "height": 300000, "resample": "none", "resolution": 300})).unwrap();
+        assert_eq!(s.active().unwrap().doc.size, Size::new(40, 20));
+        assert_eq!(s.active().unwrap().doc.resolution_dpi, 300.0);
+        // Ordinary resampling still succeeds.
+        s.execute("image.imageSize", json!({"width": 80, "height": 40})).unwrap();
+        assert_eq!(s.active().unwrap().doc.size, Size::new(80, 40));
+    }
+
     #[test]
     fn image_size_scales_everything() {
         for resample in ["bicubic", "bilinear", "nearest", "lanczos", "preserveDetails"] {
