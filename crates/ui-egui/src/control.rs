@@ -956,10 +956,7 @@ mod tests {
         let before = call(&mut app, &ctx, "ui.inspect", json!({}));
         let fields = before["result"]["dialogs"][0]["fields"].clone();
 
-        for params in [
-            json!({"id": "image.imageRotation.90cw"}),
-            json!({"id": "image.imageRotation.90cw", "params": {}}),
-        ] {
+        for params in [json!({"id": "image.imageRotation.90cw"}), json!({"id": "image.imageRotation.90cw", "params": {}})] {
             let blocked = call(&mut app, &ctx, "ui.menu.invoke", params);
             assert_eq!(blocked["ok"], false, "{blocked}");
             assert_eq!(app.session.active().unwrap().revision, revision);
