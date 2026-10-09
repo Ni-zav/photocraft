@@ -1283,11 +1283,7 @@ fn near_rotate_corner(t: &TransformSession, p: [f64; 2], tol: f64) -> bool {
 fn rotation_degrees(quad: [[f64; 2]; 4]) -> f64 {
     let dx = quad[1][0] - quad[0][0];
     let dy = quad[1][1] - quad[0][1];
-    if dx.is_finite() && dy.is_finite() && dx.hypot(dy) > 1e-9 {
-        dy.atan2(dx).to_degrees()
-    } else {
-        0.0
-    }
+    if dx.is_finite() && dy.is_finite() && dx.hypot(dy) > 1e-9 { dy.atan2(dx).to_degrees() } else { 0.0 }
 }
 
 /// Cursor for hovering a document point while transforming. `alt` is Option, which arms a quick
@@ -1308,8 +1304,7 @@ pub fn cursor(app: &PhotocraftApp, p: [f64; 2], alt: bool) -> Option<CursorIcon>
     if !distort_allows(t.mode, h) {
         return Some(CursorIcon::Default);
     }
-    if (near_rotate_corner(t, p, tol)
-        || app.transform_preview.as_ref().is_some_and(|pv| pv.gesture.is_some_and(|g| g.hit == Hit::Outside)))
+    if (near_rotate_corner(t, p, tol) || app.transform_preview.as_ref().is_some_and(|pv| pv.gesture.is_some_and(|g| g.hit == Hit::Outside)))
         && t.mode != TransformMode::Distort
     {
         // The overlay paints the rotating arrow and pointer marker, including during a drag.
