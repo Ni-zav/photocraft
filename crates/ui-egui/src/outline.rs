@@ -43,8 +43,26 @@ pub fn outline_scaled(mask: &Surface, bounds: Rect, step: u32) -> Vec<Segment> {
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        use rayon::prelude::*;
-        grid.par_chunks_mut(w).enumerate().for_each(|(gy, row)| sample_row(gy, row));
+        // The UI thread must not join Rayon for an outline redraw: filters already
+        // occupy that shared pool, so waiting for its workers can stall inspection
+        // and cancellation of the still-running background job (#1554). Use small,
+        // scoped OS threads for large outlines, as effect-map construction does.
+        let workers = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4).min(h);
+        if workers == 1 || grid.len() < (1 << 16) {
+            grid.chunks_mut(w).enumerate().for_each(|(gy, row)| sample_row(gy, row));
+        } else {
+            let rows_per_worker = h.div_ceil(workers);
+            std::thread::scope(|scope| {
+                for (batch, rows) in grid.chunks_mut(rows_per_worker * w).enumerate() {
+                    let sample_row = &sample_row;
+                    scope.spawn(move || {
+                        for (local_y, row) in rows.chunks_mut(w).enumerate() {
+                            sample_row(batch * rows_per_worker + local_y, row);
+                        }
+                    });
+                }
+            });
+        }
     }
     #[cfg(target_arch = "wasm32")]
     grid.chunks_mut(w).enumerate().for_each(|(gy, row)| sample_row(gy, row));
