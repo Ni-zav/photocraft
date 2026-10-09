@@ -224,6 +224,7 @@ pub(crate) fn doc_m(d: &Document, sink: &mut dyn Sink) -> DocM {
         metadata: MetadataM {
             xmp: d.metadata.xmp.clone(),
             exif: opt_blob(&d.metadata.exif, sink),
+            text: d.metadata.text.clone(),
             psd_resources: d.metadata.psd_resources.iter().map(|(id, n, b)| (*id, n.clone(), sink.blob(b))).collect(),
             psd_global_blocks: d.metadata.psd_global_blocks.iter().map(|(s, k, b)| (hex(s), hex(k), sink.blob(b))).collect(),
         },
@@ -310,7 +311,13 @@ impl Loader<'_> {
         swap_to_le(&mut dp, f.sample);
         let mut s = Surface::with_default(f, &decode_pixel(&f, &dp));
         let len = tile_len(&f);
+        // Both edges of a tile's rectangle must fit in i32 (`TileCoord::rect` multiplies by the
+        // tile size): -8388608 ..= 8388606. A damaged manifest can name any index (#938).
+        let fits = |i: i32| i.checked_mul(TILE_SIZE).is_some() && i.checked_add(1).and_then(|e| e.checked_mul(TILE_SIZE)).is_some();
         for t in &m.tiles {
+            if !fits(t.tx) || !fits(t.ty) {
+                return Err(FormatError::corrupt(format!("tile ({}, {}) is outside the coordinate range", t.tx, t.ty)));
+            }
             let c = TileCoord::new(t.tx, t.ty);
             if s.tile(c).is_some() {
                 return Err(FormatError::corrupt(format!("duplicate tile ({}, {})", t.tx, t.ty)));
@@ -501,7 +508,13 @@ impl Loader<'_> {
             channels.push(self.channel(c)?);
         }
         let quick_mask = m.quick_mask.as_ref().map(|c| self.channel(c)).transpose()?;
-        let mut md = Metadata { xmp: m.metadata.xmp.clone(), exif: self.opt_blob(&m.metadata.exif)?, psd_resources: Vec::new(), psd_global_blocks: Vec::new() };
+        let mut md = Metadata {
+            xmp: m.metadata.xmp.clone(),
+            exif: self.opt_blob(&m.metadata.exif)?,
+            text: m.metadata.text.clone(),
+            psd_resources: Vec::new(),
+            psd_global_blocks: Vec::new(),
+        };
         for (id, n, h) in &m.metadata.psd_resources {
             md.psd_resources.push((*id, n.clone(), self.fetch.blob(h)?));
         }

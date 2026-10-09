@@ -475,7 +475,7 @@ fn empty(ui: &mut egui::Ui, s: &str) {
 fn doc_point(app: &PhotocraftApp, pos: Pos2) -> Option<[f64; 2]> {
     let i = app.session.active_index()?;
     let v = app.ui.views.get(i)?;
-    let xf = crate::canvas::ViewXform { rect: app.last_canvas_rect, zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal };
+    let xf = crate::canvas::ViewXform { rect: app.last_canvas_rect, zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal, rotation: v.rotation };
     Some(xf.to_doc(pos))
 }
 
@@ -813,6 +813,12 @@ pub fn select_tool_preset(app: &mut PhotocraftApp, name: &str) {
     let Some(r) = run(app, "tool.presets.select", json!({"preset": name})) else { return };
     if let Some(tool) = r["tool"].as_str().and_then(Tool::from_name) {
         app.ui.tool = tool;
+        // Each tool keeps its own brush (#218), so switch it in before the preset's brush lands
+        // on it, and re-apply the brush the command just set for the old tool.
+        crate::paint_mouse::sync_tool_brush(app);
+        if let Some(b) = r["options"].get("brush").filter(|b| b.is_object()) {
+            let _ = app.run("tools.setBrush", json!({"brush": b}));
+        }
     }
     if let Some(o) = r["options"].get("toolOptions").and_then(Value::as_object) {
         let mut cur = serde_json::to_value(&app.ui.tool_options).unwrap_or_default();
