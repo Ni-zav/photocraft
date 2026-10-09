@@ -82,7 +82,7 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
             }
             // A command-specific filter must not inherit the image formats used by File › Open.
             let dialog = if let Some(exts) = extensions {
-                dialog.add_filter("Supported Files", &exts)
+                dialog.add_filter("Supported Files", &open_filter_extensions(&exts.iter().map(String::as_str).collect::<Vec<_>>()))
             } else {
                 dialog.add_filter("All Formats", &open_filter_extensions(OPEN_EXTS)).add_filter("PhotoCraft", &open_filter_extensions(&["pcraft"]))
             };

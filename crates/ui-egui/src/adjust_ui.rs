@@ -161,10 +161,15 @@ mod lookup_picker_tests {
         let layer = app.run("layer.newAdjustmentLayer.colorLookup", json!({})).unwrap()["layer"].as_u64().unwrap();
         browse_color_lookup(&mut app, LayerId(layer)).unwrap();
         app.poll_file_dialog(&egui::Context::default(), None);
-        assert!(matches!(asked.borrow().first(), Some(FileDialogRequest::Open { multiple: false, extensions: Some(exts), .. }) if exts.iter().map(String::as_str).collect::<Vec<_>>() == ["cube", "3dl", "look"]));
+        assert!(
+            matches!(asked.borrow().first(), Some(FileDialogRequest::Open { multiple: false, extensions: Some(exts), .. }) if exts.iter().map(String::as_str).collect::<Vec<_>>() == ["cube", "3dl", "look"])
+        );
         app.poll_file_dialog(&egui::Context::default(), None);
         let adj = &app.session.active().unwrap().doc.layer(LayerId(layer)).unwrap().content;
-        assert!(matches!(adj, photocraft_doc::LayerContent::Adjustment(Adjustment::ColorLookup { name, lut: Some(_), size: 2, .. }) if name == "custom.cube"), "{adj:?}");
+        assert!(
+            matches!(adj, photocraft_doc::LayerContent::Adjustment(Adjustment::ColorLookup { name, lut: Some(_), size: 2, .. }) if name == "custom.cube"),
+            "{adj:?}"
+        );
     }
 
     #[test]
