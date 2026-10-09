@@ -25,6 +25,10 @@
 	Layer	Vrstva
 	Type	Text
 	Select	Výběr
+	Top Left	Vlevo nahoře
+	Top Right	Vpravo nahoře
+	Bottom Left	Vlevo dole
+	Bottom Right	Vpravo dole
 	Filter	Filtr
 	View	Zobrazení
 	Window	Okno
@@ -990,11 +994,14 @@
 	Draw with the Pen tool (P) or make a work path from a selection.	Kreslete nástrojem pero (P) nebo vytvořte pracovní cestu z výběru.
 	Drop an image or PSD anywhere to open it.	Přetáhněte sem obrázek nebo PSD a otevře se.
 	Native file drag-and-drop is unavailable	Nativní přetahování souborů ve Waylandu není dostupné
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run PhotoCraft under XWayland with `WAYLAND_DISPLAY= photocraft`.	Nativní přetahování souborů ve Waylandu zatím není podporováno. Použijte Soubor › Otevřít nebo spusťte PhotoCraft v XWayland s `WAYLAND_DISPLAY= photocraft`.
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Nativní přetahování souborů ve Waylandu zatím není podporováno. Použijte Soubor › Otevřít, nebo obrázek zkopírujte ve správci souborů a vložte ho pomocí {paste}.
+	To drop files, start PhotoCraft under XWayland: `{command}`	Chcete-li soubory přetahovat, spusťte PhotoCraft v XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	Nebo nastavte Předvolby › Výkon › Zobrazovací server Linuxu na X11: PhotoCraft se pak vždy spustí v XWayland.
+	Edit › Paste	Úpravy › Vložit
 	Duplicate Layers…	Duplikovat vrstvy…
 	Duplicate style	Duplikovat styl
 	Edit Toolbar…	Upravit panel nástrojů…
-	Use File › Open to open an image.	Obrázek otevřete přes Soubor › Otevřít.
+	Use File › Open, or paste a copied image with {paste}.	Použijte Soubor › Otevřít, nebo vložte zkopírovaný obrázek pomocí {paste}.
 	Edit in Quick Mask Mode  (Q)	Upravit v režimu rychlé masky  (Q)
 	Edit in Standard Mode  (Q)	Upravit ve standardním režimu  (Q)
 	Effects	Efekty
@@ -1478,6 +1485,10 @@
 	↑↓ navigate   {key} run   esc close	↑↓ pohyb   {key} spustit   esc zavřít
 	Version {version}	Verze {version}
 	New Document	Nový dokument
+	Saved	Uložené
+	Save Preset…	Uložit předvolbu…
+	Preset Name	Název předvolby
+	No saved presets yet.	Zatím nejsou uloženy žádné předvolby.
 	Error	Chyba
 	Command	Příkaz
 
@@ -2018,6 +2029,8 @@
 	CPU (no GPU acceleration)	CPU (bez akcelerace GPU)
 	DirectX 12	DirectX 12
 	GPU backend	Grafický backend
+	Linux display server	Zobrazovací server Linuxu
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	Použít přítlak tabletu
@@ -2081,6 +2094,7 @@ cameraRaw	Color	Barvy
 	Patch Tool	Nástroj záplata
 	Patch:	Záplata:
 	Lasso around an area, then drag the selection	Obtáhněte oblast lasem a pak přetáhněte výběr
+	Now drag the selection onto another area	Nyní přetáhněte výběr na jiné místo
 	Edit Type	Upravit text
 
 
@@ -2162,6 +2176,18 @@ cameraRaw	Color	Barvy
 	Knockout	Vyřazení
 	Apply At Canvas Bounds	Použít efekt na hranicích plátna
 
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	Výběr barvy (Barva textu)
+	Pick screen color	Vybrat barvu obrazovky
+	Sample a pixel anywhere on the screen	Vzorkovat pixel kdekoli na obrazovce
+	Click to pick · Esc to cancel	Kliknutí vybere · Esc zruší
+	Pick a screen pixel or press Esc to cancel	Vyberte pixel obrazovky nebo stiskněte Esc pro zrušení
+	Scroll to zoom	Rolováním přibližujte
+	Show/Hide All Panels	Zobrazit/skrýt všechny panely
+	Show/Hide Panels	Zobrazit/skrýt panely
+	Could not open	Nelze otevřít
+	{path}: the path is not valid Unicode; rename the file and open it again.	{path}: cesta není platný Unicode; přejmenujte soubor a otevřete jej znovu.
+
 # Fill dialog, layer style contours and Image Size
 	Contents:	Obsah:
 	Custom Pattern:	Vlastní vzorek:
@@ -2219,3 +2245,27 @@ fontWeight	Italic	Kurzíva
 	Pattern Stamp Tool	Nástroj razítko vzorku
 	Pattern Stamp	Razítko vzorku
 	Impressionist	Impresionista
+	Rotate View	Otočit zobrazení
+	Rotate View Tool	Nástroj otočení zobrazení
+	Reset View	Obnovit zobrazení
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Tažením kolem středu otočíte zobrazení  ·  Shift omezí na 15°
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Bodový vzorek
+	3 by 3 Average	Průměr 3 × 3
+	5 by 5 Average	Průměr 5 × 5
+	11 by 11 Average	Průměr 11 × 11
+	31 by 31 Average	Průměr 31 × 31
+	51 by 51 Average	Průměr 51 × 51
+	101 by 101 Average	Průměr 101 × 101
+	Sample Size:	Velikost vzorku:
+	All Layers No Adjustments	Všechny vrstvy bez korekcí
+	Current & Below No Adjustments	Aktuální a pod ní bez korekcí
+	Show Sampling Ring	Zobrazit vzorkovací kroužek
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Mimo gamut tisku: klepnutím zvolíte nejbližší tisknutelnou barvu
+	Not a web colour: click for the nearest web colour	Není webová barva: klepnutím zvolíte nejbližší webovou barvu
+	Color to Alpha…	Barva na alfu…
+	Transparency Threshold	Práh průhlednosti
+	Opacity Threshold	Práh krytí

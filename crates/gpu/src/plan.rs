@@ -362,6 +362,8 @@ pub const F_FIRST: u32 = 2048;
 pub const F_CHANNELS: u32 = 4096;
 /// Lab document: Normal blending mixes in CIELAB (`psblend::LAB_MIX`).
 pub const F_LAB: u32 = 65536;
+/// 32-bit float document: Linear Dodge (Add) and Divide don't clip at 1 (`psblend::HDR`).
+pub const F_HDR: u32 = 262144;
 /// `Lerp`: A rounded to `p0.x` steps per unit (adjustment results on integer documents).
 pub const F_QUANT: u32 = 32768;
 /// `Lerp` as A + (B − C) premultiplied (layers clipped to pass-through groups).
@@ -426,6 +428,9 @@ impl<'a> Planner<'a> {
         pass.dst = dst;
         if self.cx.mode == photocraft_color::ColorMode::Lab {
             pass.flags |= F_LAB;
+        }
+        if self.cx.depth == photocraft_color::SampleType::F32 {
+            pass.flags |= F_HDR;
         }
         let (a, b, c, d) = (pass.a, pass.b, pass.c, pass.d);
         self.passes.push(pass);
@@ -641,7 +646,7 @@ impl<'a> Planner<'a> {
 
         if let LayerContent::Shape(sh) = &layer.content
             && !visible_clipped.is_empty()
-            && let Some((fill, stroke)) = photocraft_compose::shape_split::split(sh, self.cx.canvas)
+            && let Some((fill, stroke)) = photocraft_compose::shape_split::split(sh, self.cx.canvas, self.cx.depth)
         {
             // The vector stroke goes above the clipped layers: the fill is the clipping base,
             // the stroke is laid over the clipped result, then the masks apply to both
@@ -912,7 +917,7 @@ impl<'a> Planner<'a> {
         // A stroked shape's vector stroke goes above its clipped layers and interior effects
         // (compose::split_parts): the fill and the stroke unmasked, the masks applied after.
         let split = match &layer.content {
-            LayerContent::Shape(sh) if sh.stroke.is_some() => photocraft_compose::shape_split::split(sh, canvas),
+            LayerContent::Shape(sh) if sh.stroke.is_some() => photocraft_compose::shape_split::split(sh, canvas, self.cx.depth),
             _ => None,
         };
         let (mut content, vstroke) = match split {
