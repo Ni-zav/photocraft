@@ -29,6 +29,10 @@ pub struct Runtime {
     saved_value: Option<Value>,
     save_retry: SaveRetry,
     theme_pref: Option<Theme>,
+    /// The value the native window builder used on launch; changing it needs a new process.
+    system_title_bar_at_launch: Option<bool>,
+    /// One notice per divergent setting, not one per frame.
+    system_title_bar_notice: Option<u64>,
     next_autosave_ms: f64,
     /// Last revision whose recovery file was actually written successfully.
     autosaved: HashMap<DocId, u64>,
@@ -112,6 +116,7 @@ pub fn load(app: &mut PhotocraftApp) {
     app.sync_recent();
     app.prefs_rt.saved_rev = app.session.prefs.rev();
     app.prefs_rt.saved_value = Some(app.session.prefs_value());
+    app.prefs_rt.system_title_bar_at_launch = Some(app.session.prefs().interface.system_title_bar);
     if app.session.prefs().file_handling.recover_on_launch
         && let Some(recover) = app.services.recover.as_mut()
     {
@@ -220,6 +225,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::theme::set_ui_font_size(ctx, app.session.prefs().interface.ui_font_size);
     presets_store(app);
     sync_tooltips(app, ctx);
+    sync_system_title_bar_notice(app);
     app.sync_recent();
     if let Some(wait) = persist(app, ctx.input(|i| i.time)) {
         ctx.request_repaint_after(std::time::Duration::try_from_secs_f64(wait).unwrap_or_default());
@@ -233,6 +239,30 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     autosave(app);
     history_log(app);
+}
+
+/// The window-decorations preference is read before creating the native window (#1316).
+/// Warn after Apply/OK or prefs.set, but not on launch and not repeatedly every frame.
+fn sync_system_title_bar_notice(app: &mut PhotocraftApp) {
+    if !(cfg!(target_os = "windows") || cfg!(target_os = "linux")) {
+        return;
+    }
+    let Some(started_with) = app.prefs_rt.system_title_bar_at_launch else { return };
+    let requested = app.session.prefs().interface.system_title_bar;
+    if requested == started_with {
+        if let Some(id) = app.prefs_rt.system_title_bar_notice.take() {
+            app.ui.notices.retain(|n| n.id != id);
+        }
+    } else if app.prefs_rt.system_title_bar_notice.is_none() {
+        let id = crate::notices::post(
+            app,
+            "Restart Required",
+            vec!["Restart PhotoCraft to apply the System Title Bar preference.".into()],
+            false,
+            None,
+        );
+        app.prefs_rt.system_title_bar_notice = Some(id);
+    }
 }
 
 /// First retry delay after a failed preferences write, in seconds; it doubles with every further
@@ -1611,6 +1641,28 @@ mod tests {
         // A value that changed type here replaces the stored one.
         merge_changes(&json!({"a": 1}), &json!({"a": {"b": 2}}), &mut theirs);
         assert_eq!(theirs["a"], json!({"b": 2}));
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[test]
+    fn changing_system_title_bar_shows_one_restart_notice_until_reverted() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        assert!(app.ui.notices.iter().all(|n| n.title != "Restart Required"));
+        let original = app.session.prefs().interface.system_title_bar;
+        app.run("prefs.set", json!({"path": "interface.systemTitleBar", "value": !original})).unwrap();
+        tick(&mut app, &ctx);
+        let notice_id = app.prefs_rt.system_title_bar_notice.expect("restart notice");
+        assert!(app.ui.notices.iter().any(|n| n.id == notice_id && n.title == "Restart Required"));
+        for _ in 0..3 {
+            tick(&mut app, &ctx);
+        }
+        assert_eq!(app.ui.notices.iter().filter(|n| n.id == notice_id).count(), 1);
+        app.run("prefs.set", json!({"path": "interface.systemTitleBar", "value": original})).unwrap();
+        tick(&mut app, &ctx);
+        assert!(app.ui.notices.iter().all(|n| n.id != notice_id));
+        assert!(app.prefs_rt.system_title_bar_notice.is_none());
     }
 
     #[test]
