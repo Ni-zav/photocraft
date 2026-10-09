@@ -243,7 +243,14 @@ mod tests {
         assert_eq!(out[1].1, *b"Patt");
         let mut d2 = d.clone();
         d2.metadata.psd_global_blocks = out;
-        assert_eq!(from_global_blocks(&d2), d.patterns);
+        // PSD global Patt follows the RGB document mode, even for library patterns
+        // originally created in grayscale. Standalone .pat export remains lossless.
+        let restored = from_global_blocks(&d2);
+        assert_eq!(restored.len(), d.patterns.len());
+        for (actual, source) in restored.iter().zip(&d.patterns) {
+            assert_eq!((&actual.id, &actual.name), (&source.id, &source.name));
+            assert_eq!(actual.surface.format().mode, ColorMode::Rgb);
+        }
         assert_eq!(read_pat(&write_pat(&d.patterns).unwrap()).unwrap(), d.patterns);
     }
 }
