@@ -829,7 +829,10 @@ fn transpose_map(v: &[f32], w: usize, h: usize) -> Vec<f32> {
 /// convolves directly).
 fn tent(m: &mut Map, w: f32) {
     let w = bounded_tent_width(w);
-    if tent_kernel(w).0 == 0 || m.v.is_empty() {
+    // The CPU path uses running sums, not the convolution kernel. Checking the
+    // width directly avoids constructing a potentially 1025-tap kernel just to
+    // discover whether this blur is the identity.
+    if w <= 1.0 || m.v.is_empty() {
         return;
     }
     tent_fast(m, w);
