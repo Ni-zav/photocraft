@@ -802,6 +802,16 @@ pub fn dropdown<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, op
 
 /// [`dropdown`], also returning the option under the pointer in its open list (live previews).
 pub fn dropdown_hovered<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, &str)], width: f32) -> (bool, Option<T>) {
+    dropdown_hovered_impl(ui, id, current, options, width, false)
+}
+
+/// Layers' Blend Mode dropdown: scroll over its closed button to step through modes (#1747).
+/// Other dropdowns keep their normal wheel behavior (e.g. scrolling an open list).
+pub fn dropdown_hovered_wheel<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, &str)], width: f32) -> (bool, Option<T>) {
+    dropdown_hovered_impl(ui, id, current, options, width, true)
+}
+
+fn dropdown_hovered_impl<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, &str)], width: f32, wheel: bool) -> (bool, Option<T>) {
     let label = options.iter().find(|(v, _)| v == current).map(|(_, l)| tl!(l)).unwrap_or("—");
     let (mut changed, mut hovered) = (false, None);
     let response = egui::ComboBox::from_id_salt(id).selected_text(label).width(width).height(420.0).icon(chevron_icon).show_ui(ui, |ui| {
@@ -817,7 +827,23 @@ pub fn dropdown_hovered<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &m
         }
     });
     let stepped = combo_box_arrow_keys(ui, &response.response, current, options);
-    (changed || stepped, hovered)
+    // Use the shared wheel-notch accumulator for line wheels and high-resolution trackpads.
+    // Down advances, up goes back, and an endpoint stays put. Only the combo's button
+    // intercepts the wheel: scrolling an open popup list remains normal.
+    let notches = if wheel { wheel_notches(ui, &response.response) } else { 0.0 };
+    let mut wheel_changed = false;
+    if notches != 0.0 && !options.is_empty() {
+        let index = options.iter().position(|(value, _)| value == current).unwrap_or(0);
+        let count = notches.abs() as usize;
+        let next = if notches < 0.0 { index.saturating_add(count).min(options.len() - 1) } else { index.saturating_sub(count) };
+        if next != index {
+            if let Some((value, _)) = options.get(next) {
+                *current = value.clone();
+                wheel_changed = true;
+            }
+        }
+    }
+    (changed || stepped || wheel_changed, hovered)
 }
 
 /// Give a dropdown keyboard focus when it opens, then use the arrow keys to move through its

@@ -1511,7 +1511,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let opacity_label = if t.pro { tl!("Opacity:") } else { tl!("Opacity") };
                 let right = (body_text_width(ui, opacity_label) + LAYER_PCT_W + 2.0 * ui.spacing().item_spacing.x + 16.0).max(150.0);
                 let w = ui.available_width() - right;
-                let (chosen, hovered) = widgets::dropdown_hovered(ui, "blend", &mut m, &blend_options(l.is_group()), w.max(100.0));
+                let (chosen, hovered) = widgets::dropdown_hovered_wheel(ui, "blend", &mut m, &blend_options(l.is_group()), w.max(100.0));
                 if chosen {
                     actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "blend": m.label()})));
                 }
