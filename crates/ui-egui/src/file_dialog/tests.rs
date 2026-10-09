@@ -53,7 +53,7 @@ fn filtered_picker_requests_only_the_given_extensions() {
     assert!(matches!(
         open.borrow().first().map(|(r, _)| r),
         Some(FileDialogRequest::Open { multiple: false, extensions: Some(exts), .. })
-            if exts == &["cube", "3dl", "look"]
+            if exts.iter().map(String::as_str).collect::<Vec<_>>() == ["cube", "3dl", "look"]
     ));
 }
 
