@@ -1,0 +1,42 @@
+# Temporary fork-only CI for PhotoCraft shortcut parser contribution.
+# Delete this scratch branch after validation; never merge this workflow upstream.
+name: Session CI - shortcut parser
+on:
+  push:
+    branches:
+      - ci/validate-shortcuts-s20261009T163527Z-8d29af
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Rust checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libgtk-3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Rustfmt
+        if: runner.os == 'Linux'
+        run: cargo fmt --all -- --check
+      - name: Full workspace tests
+        run: cargo test --workspace --locked --features heif
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked --features heif -- -D warnings
