@@ -1702,6 +1702,46 @@ mod tests {
         assert_eq!(tent_kernel(1.0), (0, vec![1.0]));
     }
 
+    /// #1543: parameters from commands or imported layer styles must never size
+    /// an unbounded tent kernel or its intermediate blur rows.
+    #[test]
+    fn enormous_satin_and_bevel_blurs_are_bounded_by_effect_reach() {
+        let shape = square(9, 2, 7);
+        let mut bounded = shape.clone();
+        tent(&mut bounded, MAX_REACH);
+
+        for size in [1_000_000.0, f32::MAX, f32::INFINITY] {
+            let mut actual = shape.clone();
+            tent(&mut actual, size);
+            assert_eq!(actual.v, bounded.v, "tent width {size}");
+            assert_eq!(tent_kernel(size), tent_kernel(MAX_REACH), "GPU kernel width {size}");
+
+            let satin = photocraft_doc::Satin {
+                common: photocraft_doc::FxCommon::new(BlendMode::Multiply, 1.0),
+                color: photocraft_color::Color::BLACK,
+                angle: 45.0,
+                distance: 3.0,
+                size,
+                contour: Contour::Linear,
+                anti_alias: false,
+                invert: false,
+            };
+            let satin_map = satin_map(&shape, &satin);
+            assert_eq!(satin_map.v.len(), shape.v.len());
+            assert!(satin_map.v.iter().all(|v| v.is_finite()), "Satin size {size}");
+
+            let mut bevel = bevel_of(BevelStyle::InnerBevel, BevelTechnique::Smooth);
+            bevel.size = size;
+            bevel.soften = size;
+            let (maps, _) = bevel_maps(
+                &shape, &bevel, &GlobalLight::default(), &no_tex(),
+                &PreparedPatterns::new(&[], PREPARED_PATTERN_BYTES),
+            );
+            assert_eq!(maps.len(), 2, "Bevel size {size}");
+            assert!(maps.iter().all(|map| map.v.len() == shape.v.len()));
+        }
+    }
+
     fn no_tex() -> TextureCtx<'static> {
         TextureCtx { rect: Rect::new(0, 0, 1, 1), patterns: &[], anchor: (0.0, 0.0) }
     }
