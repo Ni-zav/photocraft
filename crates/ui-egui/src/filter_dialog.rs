@@ -225,10 +225,8 @@ pub(crate) fn remember(app: &mut PhotocraftApp, command: &str, fields: &Map<Stri
         return;
     }
     let Some(spec) = photocraft_engine::commands::find(command) else { return };
-    let saved: Map<String, Value> = parse_spec(spec.params)
-        .into_iter()
-        .filter_map(|p| fields.get(&p.key).filter(|v| rememberable(&p.kind, v)).map(|v| (p.key, v.clone())))
-        .collect();
+    let saved: Map<String, Value> =
+        parse_spec(spec.params).into_iter().filter_map(|p| fields.get(&p.key).filter(|v| rememberable(&p.kind, v)).map(|v| (p.key, v.clone()))).collect();
     if !saved.is_empty() {
         app.session.prefs.edit(|prefs| prefs.dialogs.insert(command.into(), Value::Object(saved)));
     }
@@ -570,10 +568,7 @@ mod tests {
     fn restores_only_valid_previous_filter_choices() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.session.prefs.edit(|prefs| {
-            prefs.dialogs.insert(
-                "filter.blur.gaussianBlur".into(),
-                json!({"radius": 11.0, "bogus": 42}),
-            );
+            prefs.dialogs.insert("filter.blur.gaussianBlur".into(), json!({"radius": 11.0, "bogus": 42}));
         });
         open(&mut app, "filter.blur.gaussianBlur").unwrap();
         let fields = &app.ui.dialogs.last().unwrap().fields;
