@@ -1709,10 +1709,16 @@ fn footer_label(command: &str) -> &'static str {
     }
 }
 
-/// A secondary click opens a Layers footer popup just like a primary click. With no
-/// secondary click, leave the pop-up's normal primary-click toggle and close behavior alone.
-fn footer_menu_right_click(response: &egui::Response) -> Option<bool> {
-    response.secondary_clicked().then_some(true)
+/// A secondary click opens a Layers footer popup, as in Photoshop; a primary click still toggles
+/// it (the `Popup::menu` default this replaces).
+fn footer_menu_right_click(response: &egui::Response) -> Option<egui::SetOpenCommand> {
+    if response.secondary_clicked() {
+        Some(egui::SetOpenCommand::Bool(true))
+    } else if response.clicked() {
+        Some(egui::SetOpenCommand::Toggle)
+    } else {
+        None
+    }
 }
 
 /// The small down-arrow makes it clear that the footer icon expands into a menu.
@@ -3463,37 +3469,33 @@ mod footer_menu_tests {
         let pos = pos2(35.0, 20.0);
         let mut frame = |events: Vec<egui::Event>| {
             let mut opened = false;
-            let mut output = ctx.run_ui(
-                egui::RawInput { screen_rect: Some(rect), events, ..Default::default() },
-                |ui| {
-                    let response = ui.add_sized([100.0, 28.0], egui::Button::new("Footer menu"));
-                    egui::Popup::menu(&response).open_memory(footer_menu_right_click(&response)).show(|ui| {
-                        opened = true;
-                        ui.label("Menu entry");
-                    });
-                },
-            );
+            let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(rect), events, ..Default::default() }, |ui| {
+                let response = ui.add_sized([100.0, 28.0], egui::Button::new("Footer menu"));
+                egui::Popup::menu(&response).open_memory(footer_menu_right_click(&response)).show(|ui| {
+                    opened = true;
+                    ui.label("Menu entry");
+                });
+            });
             output.textures_delta.clear();
             opened
         };
         frame(Vec::new());
-        frame(vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton {
-            pos, button: egui::PointerButton::Secondary, pressed: true, modifiers: egui::Modifiers::NONE,
-        }]);
-        assert!(frame(vec![egui::Event::PointerButton {
-            pos, button: egui::PointerButton::Secondary, pressed: false, modifiers: egui::Modifiers::NONE,
-        }]), "secondary release opens the popup");
+        frame(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed: true, modifiers: egui::Modifiers::NONE },
+        ]);
+        assert!(
+            frame(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed: false, modifiers: egui::Modifiers::NONE }]),
+            "secondary release opens the popup"
+        );
 
         // A primary click also remains supported by egui::Popup::menu.
-        frame(vec![egui::Event::Key {
-            key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE,
-        }]);
-        frame(vec![egui::Event::PointerButton {
-            pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE,
-        }]);
-        assert!(frame(vec![egui::Event::PointerButton {
-            pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE,
-        }]), "primary release still opens the popup");
+        frame(vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]);
+        frame(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }]);
+        assert!(
+            frame(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE }]),
+            "primary release still opens the popup"
+        );
     }
 }
 
