@@ -191,6 +191,48 @@ jobs:
       - name: Check wasm-safe crates
         run: cargo xtask wasm
 
+
+  web:
+    name: web build and wasm size gate
+    runs-on: ubuntu-latest
+    env:
+      # Match release.yml so PR results reflect what would actually ship.
+      TRUNK_VERSION: 0.21.14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-web
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Install trunk
+        run: |
+          curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.cargo/bin" trunk
+          trunk --version
+      # package.sh runs Trunk's release build, validates relative URLs, checks the 24 MiB
+      # wasm limit and exercises the same packaging step used by release.yml.
+      - name: Build and verify browser release
+        run: packaging/web/package.sh
+      - name: Report wasm size
+        if: success()
+        run: |
+          {
+            echo "### Browser WebAssembly size"
+            echo
+            echo "| File | Bytes | MiB | Limit |"
+            echo "| --- | ---: | ---: | ---: |"
+            for wasm in dist/web/*.wasm; do
+              [ -f "$wasm" ] || continue
+              bytes=$(wc -c < "$wasm" | tr -d ' ')
+              mib=$(awk -v n="$bytes" 'BEGIN { printf "%.2f", n / 1048576 }')
+              echo "| $(basename "$wasm") | $bytes | $mib | 24 MiB |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
   fuzz:
     name: fuzz (${{ matrix.target.crate }}/${{ matrix.target.name }})
     # Placeholder: manual trigger only until a nightly schedule is enabled.
