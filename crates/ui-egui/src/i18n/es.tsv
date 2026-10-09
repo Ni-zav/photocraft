@@ -17,6 +17,8 @@
 	Layer	Capa
 	Type	Texto
 	Select	Selección
+	Selected	Seleccionadas
+	Scope	Alcance
 	Filter	Filtro
 	View	Ver
 	Window	Ventana

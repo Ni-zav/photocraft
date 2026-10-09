@@ -25,6 +25,8 @@
 	Layer	圖層
 	Type	文字
 	Select	選取
+	Selected	已選取
+	Scope	範圍
 	Filter	濾鏡
 	View	檢視
 	Window	視窗

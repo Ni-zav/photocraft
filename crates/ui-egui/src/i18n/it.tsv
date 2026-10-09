@@ -17,6 +17,8 @@
 	Layer	Livello
 	Type	Testo
 	Select	Selezione
+	Selected	Selezionati
+	Scope	Ambito
 	Filter	Filtro
 	View	Vista
 	Window	Finestra

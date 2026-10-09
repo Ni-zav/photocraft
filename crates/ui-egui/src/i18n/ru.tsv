@@ -24,6 +24,8 @@
 	Layer	Слой
 	Type	Текст
 	Select	Выделение
+	Selected	Выбранные
+	Scope	Область
 	Filter	Фильтр
 	View	Просмотр
 	Window	Окно

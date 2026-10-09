@@ -21,6 +21,8 @@
 	Layer	Ebene
 	Type	Text
 	Select	Auswahl
+	Selected	Ausgewählt
+	Scope	Umfang
 	Filter	Filter
 	View	Ansicht
 	Window	Fenster

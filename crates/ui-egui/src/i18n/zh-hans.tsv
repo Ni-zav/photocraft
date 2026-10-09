@@ -17,6 +17,8 @@
 	Layer	图层
 	Type	文字
 	Select	选择
+	Selected	已选
+	Scope	范围
 	Filter	滤镜
 	View	视图
 	Window	窗口

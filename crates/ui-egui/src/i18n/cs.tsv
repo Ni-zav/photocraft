@@ -25,6 +25,8 @@
 	Layer	Vrstva
 	Type	Text
 	Select	Výběr
+	Selected	Vybrané
+	Scope	Rozsah
 	Filter	Filtr
 	View	Zobrazení
 	Window	Okno
