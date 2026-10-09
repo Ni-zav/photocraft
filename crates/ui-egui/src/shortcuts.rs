@@ -48,7 +48,18 @@ pub fn parse(s: &str) -> Option<KeyboardShortcut> {
 /// `pretty("Enter")` is `↩`/`Enter`.
 pub fn pretty(s: &str) -> String {
     let mac = cfg!(target_os = "macos");
-    s.split('+')
+    let mut parts: Vec<&str> = s.split('+').collect();
+    if s.ends_with('+') {
+        // A final '+' is the Plus key, not an empty component. This matters on
+        // macOS, where the modifier separator is hidden ("Cmd++" is "⌘+").
+        parts.pop();
+        if parts.last().copied() == Some("") {
+            parts.pop();
+        }
+        parts.push("+");
+    }
+    parts
+        .into_iter()
         .map(|p| match (p, mac) {
             ("Cmd", true) => "⌘".to_string(),
             ("Cmd", false) => "Ctrl".to_string(),
@@ -475,6 +486,10 @@ mod tests {
     #[test]
     fn pretty_uses_the_platform_notation() {
         let mac = cfg!(target_os = "macos");
+        assert_eq!(pretty("+"), "+");
+        assert_eq!(pretty("Cmd+"), if mac { "⌘+" } else { "Ctrl++" });
+        assert_eq!(pretty("Cmd++"), if mac { "⌘+" } else { "Ctrl++" });
+        assert_eq!(pretty("Cmd+Shift++"), if mac { "⌘⇧+" } else { "Ctrl+Shift++" });
         assert_eq!(pretty("Cmd+Shift+N"), if mac { "⌘⇧N" } else { "Ctrl+Shift+N" });
         // Lone keys and inline-hint combos.
         assert_eq!(pretty("Alt"), if mac { "⌥" } else { "Alt" });
