@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, ci/validate-shortcuts-s20261009T163527Z-8d29af]
   pull_request:
   workflow_dispatch:
     inputs:
