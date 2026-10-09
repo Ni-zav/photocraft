@@ -17,10 +17,7 @@ fn proximity_match_reads_original_pixels_for_overlapping_offsets() {
 #[test]
 fn proximity_match_preserves_channels_and_unmasked_pixels() {
     // A two-channel image shifted from the row above.
-    let img = vec![
-        1.0, 2.0, 3.0, 4.0,
-        5.0, 6.0, 7.0, 8.0,
-    ];
+    let img = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
     let mask = [false, false, true, false];
     let result = proximity_source_patch(&img, 2, 2, 2, &mask, 0, -1).unwrap();
     assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 7.0, 8.0]);
@@ -36,8 +33,6 @@ fn proximity_match_rejects_invalid_translations_without_panicking() {
     assert!(proximity_source_patch(&img, 2, 2, 1, &mask[..3], 0, 0).is_none());
     assert!(proximity_source_patch(&img, usize::MAX, 2, 1, &mask, 0, 0).is_none());
 }
-
-
 
 #[test]
 fn clone_preview_matches_source_without_mutating_session() {
