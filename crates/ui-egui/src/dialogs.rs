@@ -142,12 +142,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.set_width(crate::color_picker_ui::CONTENT_WIDTH);
             }
             let label = egui::Label::new(egui::RichText::new(&title).font(crate::theme::semibold(15.0))).selectable(false);
-            // A full-width, finger-friendly title row: the previous hit area was only as tall
-            // as the text (and began at the text's left edge). Near-edge grabs missed it.
-            let title_row = ui.add_sized(egui::vec2(ui.available_width(), 32.0), label).rect;
-            // Use a little of the popup's horizontal padding, but not the controls below.
-            let drag_rect = title_row.expand2(egui::vec2(7.0, 0.0));
-            drag = ui.interact(drag_rect, id.with("title"), egui::Sense::drag()).drag_delta();
+            let t = if crate::color_picker_ui::owns(&fields) { ui.add_sized(egui::vec2(ui.available_width(), 22.0), label).rect } else { ui.add(label).rect };
+            // The whole title band drags (#1921): the full width plus a little of the popup's
+            // padding around it and the gap above the hairline, but none of the controls below.
+            let bar = egui::Rect::from_min_max(t.min - egui::vec2(7.0, 7.0), egui::pos2(ui.max_rect().right() + 7.0, t.bottom() + 4.0));
+            drag = ui.interact(bar, id.with("title"), egui::Sense::drag()).drag_delta();
             ui.add_space(4.0);
             crate::widgets::hairline(ui);
             ui.add_space(8.0);
@@ -523,7 +522,7 @@ mod tests {
     fn layer_style_title_gutters_can_start_drags() {
         use egui_kittest::{Harness, kittest::Queryable};
 
-        for point in 0..3 {
+        for point in 0..5 {
             let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
             let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app| show(app, ui.ctx()), app);
             PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
@@ -533,6 +532,8 @@ mod tests {
             let from = match point {
                 0 => egui::pos2(before.left() - 5.0, before.bottom() - 4.0),
                 1 => egui::pos2(before.right() + 5.0, before.bottom() - 4.0),
+                2 => egui::pos2(before.center().x, before.bottom() + 3.0),
+                3 => egui::pos2(before.center().x, before.top() - 5.0),
                 _ => egui::pos2(before.center().x, before.bottom() - 3.0),
             };
             h.hover_at(from);
