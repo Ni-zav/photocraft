@@ -44,11 +44,7 @@ pub fn selected_action(app: &PhotocraftApp) -> Option<&Action> {
 /// the panel has actions but none of its rows is selected.
 fn playback_selection(app: &PhotocraftApp) -> Option<usize> {
     let n = app.session.actions.list.len();
-    if n == 0 {
-        None
-    } else {
-        Some(app.ui.actions.selected.filter(|i| *i < n).unwrap_or(0))
-    }
+    if n == 0 { None } else { Some(app.ui.actions.selected.filter(|i| *i < n).unwrap_or(0)) }
 }
 
 /// Steps in the `[[id, params], …]` shape batch and droplets already accept.
