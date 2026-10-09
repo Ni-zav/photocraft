@@ -237,6 +237,12 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             {
                 return err(error);
             }
+            // Unlike direct engine execution, menu automation follows the same modal
+            // policy as native menu clicks; otherwise a stale dialog can overwrite
+            // a document edited underneath it (#1556).
+            if req.method == "ui.menu.invoke" && !crate::native_menu::modal_allows(app, id) {
+                return err(format!("menu command `{id}` is unavailable while a modal dialog is open"));
+            }
             // `engine.execute` is programmatic: engine commands run directly with their default
             // params and never open a dialog (an agent would otherwise get a modal instead of a
             // result). `ui.menu.invoke` behaves like a menu click, so it may open the dialog.
