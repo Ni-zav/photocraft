@@ -3856,6 +3856,9 @@ pub fn commit_polygon(app: &mut PhotocraftApp) {
 
 /// Apply the crop tool's rectangle.
 pub fn commit_crop(app: &mut PhotocraftApp) {
+    // A tab can change between pointer events without a frame repaint: never commit a
+    // rectangle from a different document even if sync_views has not run yet.
+    crate::crop_ui::cancel_stale(app);
     let Some(r) = app.ui.crop_rect.take() else { return };
     // The untouched default frame crops nothing (Photoshop's ↵ on it does nothing).
     if std::mem::take(&mut app.crop.default_frame) {

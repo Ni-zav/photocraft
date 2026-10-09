@@ -634,6 +634,21 @@ mod tests {
         assert_eq!(app.crop.owner, Some(original));
     }
 
+
+    #[test]
+    fn committing_before_the_next_repaint_cannot_crop_a_different_document() {
+        let mut app = app(SampleType::U8);
+        ensure_frame(&mut app);
+        drag(&mut app, &[[10.0, 10.0], [65.0, 35.0]], NONE);
+        assert!(app.ui.crop_rect.is_some());
+        // A direct document activation can precede the next render/sync_views pass.
+        let other = Document::with_background("other", Size::new(75, 45), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        app.session.add_document(other, None);
+        crate::canvas::commit_crop(&mut app);
+        assert_eq!(app.session.active().unwrap().doc.size, Size::new(75, 45));
+        assert!(app.ui.crop_rect.is_none(), "cancelled the stale crop instead of applying it");
+    }
+
     #[test]
     fn cursor_follows_the_frame() {
         let mut app = app(SampleType::U8);
