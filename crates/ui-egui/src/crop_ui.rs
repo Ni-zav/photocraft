@@ -15,6 +15,7 @@
 //! out), with transparency out to the frame, under the shield ([`shows_beyond_canvas`]).
 
 use egui::{CursorIcon, Modifiers};
+use photocraft_doc::DocId;
 
 use crate::PhotocraftApp;
 use crate::canvas::ToolEvent;
@@ -34,6 +35,8 @@ pub struct CropState {
     /// `UiState::crop_rect` is the untouched default frame ([`ensure_frame`]): a drag inside it
     /// draws a new frame (as in Photoshop) instead of moving it, and committing it does nothing.
     pub default_frame: bool,
+    /// Document owning the pending/default crop, never just the current tab index.
+    pub owner: Option<DocId>,
     /// The document (index and size) the default frame was made for.
     frame_for: Option<(usize, u32, u32)>,
     /// The frame is being edited (pressed since it was made): the canvas shows what lies past it.
@@ -160,9 +163,23 @@ pub fn set_space(app: &mut PhotocraftApp, down: bool) {
     app.crop.space = down;
 }
 
+/// Discard a crop on document activation rather than drawing or applying the old document's
+/// coordinates to the newly selected one. A modal crop cannot cross document boundaries.
+pub fn cancel_stale(app: &mut PhotocraftApp) {
+    let active = app.session.active().map(|st| st.doc.id);
+    if app.crop.owner.is_some() && app.crop.owner != active {
+        app.ui.crop_rect = None;
+        app.crop = CropState::default();
+    }
+}
+
 /// As in Photoshop, the Crop tool always shows a frame: on picking the tool, and after a crop is
 /// cancelled or committed, it frames the selection's bounds, or the whole canvas.
 pub fn ensure_frame(app: &mut PhotocraftApp) {
+    cancel_stale(app);
+    if app.crop.owner.is_none() && app.ui.crop_rect.is_some() {
+        app.crop.owner = app.session.active().map(|st| st.doc.id);
+    }
     if app.ui.tool != Tool::Crop {
         app.crop.editing = false;
         // Leaving the tool drops an untouched default frame (a drawn one stays pending).
@@ -189,6 +206,7 @@ pub fn ensure_frame(app: &mut PhotocraftApp) {
     }
     app.ui.crop_rect = Some([f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1)]);
     app.crop.default_frame = true;
+    app.crop.owner = Some(st.doc.id);
     app.crop.frame_for = key;
     app.crop.editing = false;
 }
@@ -232,6 +250,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
     }
     match ev {
         ToolEvent::Down { .. } => {
+            app.crop.owner = app.session.active().map(|st| st.doc.id);
             app.crop.editing = true;
             let frame = app.ui.crop_rect.filter(|r| r.iter().all(|v| v.is_finite()));
             app.crop.drag = Some(match frame.map(|r| (r, hit(r, p, tolerance(app)))) {
@@ -583,6 +602,36 @@ mod tests {
         empty.ui.tool = Tool::Crop;
         drag(&mut empty, &[[1.0, 1.0], [9.0, 9.0]], NONE);
         assert!(empty.ui.crop_rect.is_none());
+    }
+
+
+    #[test]
+    fn a_pending_crop_never_moves_to_another_document() {
+        let mut app = app(SampleType::U8);
+        ensure_frame(&mut app);
+        let original = app.session.active().unwrap().doc.id;
+        drag(&mut app, &[[15.0, 12.0], [88.0, 54.0]], NONE);
+        assert_eq!(app.crop.owner, Some(original));
+        assert_eq!(app.ui.crop_rect, Some([15.0, 12.0, 88.0, 54.0]));
+        assert!(app.crop.editing);
+
+        // File > New is also an engine command: sync_views must clear the old edit
+        // before the first canvas frame can ever paint it over the new document.
+        app.run("file.new", json!({"width": 320, "height": 180})).unwrap();
+        assert!(app.ui.crop_rect.is_none(), "old pending crop was cancelled on New");
+        assert!(app.crop.owner.is_none() && !app.crop.editing && app.crop.drag.is_none());
+        ensure_frame(&mut app);
+        assert_eq!(app.ui.crop_rect, Some([0.0, 0.0, 320.0, 180.0]), "new document has its own frame");
+
+        // Switching between existing document tabs also clears the old frame.
+        drag(&mut app, &[[20.0, 15.0], [95.0, 65.0]], NONE);
+        assert!(app.crop.editing);
+        app.session.set_active(0);
+        app.sync_views();
+        assert!(app.ui.crop_rect.is_none(), "pending crop from second document must not leak into first");
+        ensure_frame(&mut app);
+        assert_eq!(app.ui.crop_rect, Some([0.0, 0.0, 200.0, 100.0]));
+        assert_eq!(app.crop.owner, Some(original));
     }
 
     #[test]

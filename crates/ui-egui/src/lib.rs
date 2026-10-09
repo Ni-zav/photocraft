@@ -748,6 +748,7 @@ impl PhotocraftApp {
     /// Keep one view per document, in tab order: a view and its windows stay with their document
     /// when tabs move (`document.move`) or close.
     pub fn sync_views(&mut self) {
+        crate::crop_ui::cancel_stale(self);
         type_transform::cancel_stale(self);
         crate::lasso_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
