@@ -259,11 +259,7 @@ enum Answer {
 
 /// macOS keeps the plain button wording even though the keyboard shortcuts still work.
 fn button_label(mac: bool, label: &str, key: Option<Key>) -> String {
-    if mac {
-        tl!(label).to_string()
-    } else {
-        key.map_or_else(|| tl!(label).to_string(), |k| mnemonic(label, k))
-    }
+    if mac { tl!(label).to_string() } else { key.map_or_else(|| tl!(label).to_string(), |k| mnemonic(label, k)) }
 }
 
 /// "(S)ave": the key in parentheses, or appended ("Guardar (S)") when the translation doesn't start with it.
@@ -487,6 +483,23 @@ mod tests {
         h.run_steps(2);
         assert!(h.state().discard.is_none());
         assert_eq!(h.state().session.documents().len(), 2, "Cancel closed nothing");
+    }
+
+    #[test]
+    fn macos_plain_labels_keep_save_and_escape_shortcuts() {
+        for key in [Key::S, Key::Enter] {
+            let mut h = prompt_on(egui::os::OperatingSystem::Mac);
+            let (show, asked) = crate::file_dialog::fake(vec![None]);
+            h.state_mut().services.file_dialog = Some(show);
+            h.key_press(key);
+            h.run_steps(2);
+            assert_eq!(asked.borrow().len(), 1, "{key:?} opens the save dialog");
+            assert_eq!(docs_left(&h), Some(2), "cancelling the save dialog keeps the prompt");
+            h.key_press(Key::Escape);
+            h.run_steps(2);
+            assert!(h.state().discard.is_none());
+            assert_eq!(h.state().session.documents().len(), 2, "Escape closed nothing");
+        }
     }
 
     #[test]
