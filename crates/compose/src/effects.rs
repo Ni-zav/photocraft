@@ -708,8 +708,15 @@ fn paint_glow(dst: &mut Buffer, m: &Map, g: &Glow, shape_bounds: Rect, anchor: (
 
 /// Normalised weights of a centred box of (fractional) width `w`: tap `i` gets the overlap of
 /// `[i - 0.5, i + 0.5]` with `[-w/2, w/2]`.
+/// The renderer only retains effects out to MAX_REACH. Keeping both CPU and GPU
+/// tent kernels within that reach also bounds allocations for malformed imported
+/// styles and oversized automation parameters (#1543).
+fn bounded_tent_width(w: f32) -> f32 {
+    w.max(1.0).min(MAX_REACH)
+}
+
 fn box_weights(w: f32) -> Vec<f32> {
-    let w = w.max(1.0);
+    let w = bounded_tent_width(w);
     let half = w / 2.0;
     let r = (half - 0.5).ceil().max(0.0) as i64;
     let v: Vec<f32> = (-r..=r).map(|i| ((i as f32 + 0.5).min(half) - (i as f32 - 0.5).max(-half)).max(0.0)).collect();
@@ -735,10 +742,11 @@ pub fn tent_kernel(w: f32) -> (i32, Vec<f32>) {
 /// Box geometry for a (fractional) width: (`r`, end-tap weight `f`, 1 / width) — the
 /// [`box_weights`] taps are `r - 1` full ones each side of the centre plus the two end taps at `f`.
 fn box_geom(bw: f32) -> (i64, f64, f64) {
-    let half = bw.max(1.0) / 2.0;
+    let bw = bounded_tent_width(bw);
+    let half = bw / 2.0;
     let r = (half - 0.5).ceil().max(0.0) as i64;
     let f = f64::from((half - (r as f32 - 0.5)).clamp(0.0, 1.0));
-    (r, f, 1.0 / f64::from(bw.max(1.0)))
+    (r, f, 1.0 / f64::from(bw))
 }
 
 /// One box pass over `src` (zero outside it) evaluated at `x0 .. x0 + dst.len()`, as a running
@@ -817,6 +825,7 @@ fn transpose_map(v: &[f32], w: usize, h: usize) -> Vec<f32> {
 /// Two box passes of width `w` along each axis (the tent [`tent_kernel`] describes, which the GPU
 /// convolves directly).
 fn tent(m: &mut Map, w: f32) {
+    let w = bounded_tent_width(w);
     if tent_kernel(w).0 == 0 || m.v.is_empty() {
         return;
     }
