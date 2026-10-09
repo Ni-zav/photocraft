@@ -2167,11 +2167,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let b = app.cached_bounds(u64::MAX - doc.id.0, sel).intersect(&vis);
             // Filters can occupy every worker in Rayon's global pool. A parallel scan here would
             // block the UI thread waiting for those workers, preventing job cancellation (#1554).
-            let segs = if app.session.has_jobs() {
-                crate::outline::outline_scaled_serial(sel, b, step)
-            } else {
-                crate::outline::outline_scaled(sel, b, step)
-            };
+            let segs = if app.session.has_jobs() { crate::outline::outline_scaled_serial(sel, b, step) } else { crate::outline::outline_scaled(sel, b, step) };
             app.perf.span("outline", crate::gpu_canvas::now_ms() - t0);
             app.outline_cache = Some((doc.id, key, std::sync::Arc::new(segs)));
         }
