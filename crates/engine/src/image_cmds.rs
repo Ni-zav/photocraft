@@ -123,6 +123,19 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         (None, None) => (ow as f64, oh as f64),
     };
     let (nw, nh) = (nw.round().clamp(1.0, 300_000.0) as u32, nh.round().clamp(1.0, 300_000.0) as u32);
+    // Image Size resamples destination-sized float surfaces, including layer caches,
+    // masks, selections and channels. A per-axis limit alone admits 300000² pixels and
+    // requests hundreds of gigabytes before the command can return (#1544).
+    // 64 MP is already 1 GiB for a single four-channel f32 buffer, without
+    // counting intermediate passes, history, or additional layers.
+    const MAX_RESAMPLE_PIXELS: u64 = 64_000_000;
+    let pixels = u64::from(nw) * u64::from(nh);
+    if resample.is_some() && (nw != ow || nh != oh) && pixels > MAX_RESAMPLE_PIXELS {
+        return Err(bad(
+            "image.imageSize",
+            format!("resampling to {nw} x {nh} ({pixels} pixels) exceeds the {MAX_RESAMPLE_PIXELS}-pixel Image Size allocation budget"),
+        ));
+    }
     let dpi = p.get("resolution").and_then(Value::as_f64).map(|v| v as f32);
     s.edit("Image Size", |doc, _| {
         if let Some(r) = dpi {
