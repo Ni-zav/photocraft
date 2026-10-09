@@ -909,10 +909,7 @@ mod tests {
     fn options_bar_swatch_opens_the_real_preset_browser_and_selects_presets() {
         use egui_kittest::{Harness, kittest::Queryable};
         let app = app_with_gradient("linear");
-        let mut h = Harness::builder().with_size(vec2(440.0, 560.0)).build_ui_state(
-            |ui, app: &mut PhotocraftApp| preset_swatch(app, ui),
-            app,
-        );
+        let mut h = Harness::builder().with_size(vec2(440.0, 560.0)).build_ui_state(|ui, app: &mut PhotocraftApp| preset_swatch(app, ui), app);
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Pro);
         h.run_steps(2);
         let original = h.state().session.presets.gradient.name.clone();
