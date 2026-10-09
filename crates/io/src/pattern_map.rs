@@ -79,8 +79,14 @@ pub fn from_psd(p: &PsdPattern) -> Option<Pattern> {
 
 /// A document pattern as a PSD pattern (its own depth and colour model; other models as RGB).
 pub fn to_psd(p: &Pattern) -> PsdPattern {
+    to_psd_in_mode(p, p.surface.format().mode)
+}
+
+/// The document-level Patt block must encode patterns in the containing PSD color mode;
+/// a library pattern is typically RGB even when used by a CMYK or Lab fill layer.
+fn to_psd_in_mode(p: &Pattern, target: ColorMode) -> PsdPattern {
     let f = p.surface.format();
-    let mode = match f.mode {
+    let mode = match target {
         ColorMode::Grayscale | ColorMode::Rgb | ColorMode::Cmyk | ColorMode::Lab => f.mode,
         _ => ColorMode::Rgb,
     };
@@ -130,7 +136,7 @@ pub fn export_global_blocks(doc: &Document) -> Vec<photocraft_doc::PsdGlobalBloc
         return raw.clone();
     }
     let key = block_key(psd_depth(doc.depth));
-    let fresh = write_pattern_block(&doc.patterns.iter().map(to_psd).collect::<Vec<_>>()).unwrap_or_default();
+    let fresh = write_pattern_block(&doc.patterns.iter().map(|p| to_psd_in_mode(p, doc.mode)).collect::<Vec<_>>()).unwrap_or_default();
     let mut out = Vec::with_capacity(raw.len() + 1);
     let mut placed = false;
     for b in raw {
@@ -194,6 +200,31 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn psd_document_patterns_follow_the_document_color_mode() {
+        // Built-in/library patterns are RGB, even when the user creates a fill in a
+        // CMYK or Lab document. Photoshop expects Patt to use the document's model.
+        for mode in [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Cmyk, ColorMode::Lab] {
+            let mut doc = Document::new("pattern fill", photocraft_geom::Size { width: 32, height: 20 }, mode, SampleType::U8);
+            doc.patterns.push(pattern(ColorMode::Rgb, SampleType::U8, false));
+            let blocks = export_global_blocks(&doc);
+            let patt = blocks.iter().find(|b| PATTERN_KEYS.contains(&b.1)).unwrap();
+            let decoded = parse_pattern_block(&patt.2).unwrap();
+            assert_eq!(decoded.len(), 1);
+            assert_eq!(decoded[0].mode, psd_mode(mode), "PSD document mode {mode:?}");
+
+            doc.metadata.psd_global_blocks = blocks;
+            let imported = from_global_blocks(&doc);
+            assert_eq!(imported.len(), 1);
+            assert_eq!(imported[0].surface.format().mode, mode);
+            assert_eq!(imported[0].id, doc.patterns[0].id, "Pattern Fill resolves by its ID");
+            let expected = doc.patterns[0].surface.convert(PixelFormat::new(mode, SampleType::U8, false));
+            let a = imported[0].surface.read_region(imported[0].rect());
+            let b = expected.read_region(imported[0].rect());
+            assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 0.01), "converted {mode:?} pattern differs");
         }
     }
 
