@@ -179,9 +179,7 @@ impl DockLayout {
     /// Visible tabs, retaining their original indices for commands and panel bodies.
     pub fn visible_tabs(&self, group: Group, pro: bool) -> Vec<(usize, &'static str)> {
         let hidden = self.hidden_tabs.get(&group);
-        group.tabs(pro).iter().copied().enumerate()
-            .filter(|(_, name)| !hidden.is_some_and(|xs| xs.iter().any(|x| x.as_str() == *name)))
-            .collect()
+        group.tabs(pro).iter().copied().enumerate().filter(|(_, name)| !hidden.is_some_and(|xs| xs.iter().any(|x| x.as_str() == *name))).collect()
     }
 
     /// Hide one tab; it can be reopened through Window › Panel.
@@ -415,7 +413,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
         let tabs: Vec<&str> = visible.iter().map(|(_, name)| *name).collect();
         let mut sel = indices.iter().position(|i| *i == before).unwrap_or(0);
         let resp = widgets::card_ex(&mut child, g.key(), &tabs, &mut sel, collapsed, |ui, shown_tab| {
-            let tab = indices[shown_tab];
+            let Some(&tab) = indices.get(shown_tab) else { return };
             let inner = ui.available_height().max(0.0);
             if g.scrolls_itself(tab) {
                 ui.set_min_height(inner);

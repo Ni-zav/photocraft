@@ -378,7 +378,6 @@ fn clicking_around_the_ui_keeps_the_panels_put() {
     }
 }
 
-
 #[test]
 fn closing_tabs_keeps_stable_names_across_themes_and_workspace_round_trips() {
     let mut dock = DockLayout::default();
@@ -403,7 +402,7 @@ fn right_click_tab(h: &mut Harness<'static, PhotocraftApp>, group: Group, origin
         .find(|s| s.group == group)
         .and_then(|s| s.tabs.into_iter().find(|(i, _)| *i == original_index))
         .map(|(_, r)| r.center())
-        .expect("requested dock tab visible");
+        .unwrap_or_else(|| panic!("requested dock tab visible: {:?}", last_strips(&h.ctx).iter().map(|s| (s.group, s.tabs.clone())).collect::<Vec<_>>()));
     h.hover_at(p);
     h.run_steps(1);
     h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
@@ -413,43 +412,51 @@ fn right_click_tab(h: &mut Harness<'static, PhotocraftApp>, group: Group, origin
 }
 
 /// #1753: both themes offer Close for the clicked tab and Close Tab Group independently.
-/// Closing the last tab hides its group; Window restores a hidden tab.
+/// Closing the last tab hides its group; Window restores a hidden tab. (Studio floats
+/// Properties outside the dock, so it closes Layers tabs instead.)
 #[test]
 fn panel_tab_context_menu_closes_one_tab_or_its_group() {
     use egui_kittest::kittest::Queryable;
 
-    for theme in [ThemeKind::ProMedium, ThemeKind::Studio] {
+    for (theme, g, window) in [(ThemeKind::ProMedium, Group::Properties, "window.panel.properties"), (ThemeKind::Studio, Group::Layers, "window.panel.layers")]
+    {
+        let pro = is_pro(theme);
+        let names = g.tabs(pro);
         let (app, _, _) = app_with_layers();
         let mut h = harness(app, vec2(1300.0, 850.0), theme);
-        // Close Properties, leaving Adjustments in the same group and selecting it.
-        right_click_tab(&mut h, Group::Properties, 0);
+        // Close the first tab: the group stays, showing (and selecting) the next one.
+        right_click_tab(&mut h, g, 0);
         h.get_by_label("Close").click();
         h.run_steps(3);
-        assert!(h.state().ui.panels.properties, "{theme:?}: closing one tab keeps the group");
-        assert_eq!(h.state().ui.dock_tabs.properties, 1);
-        assert_eq!(h.state().ui.dock.visible_tabs(Group::Properties, is_pro(theme)), vec![(1, "Adjustments")]);
-        assert_eq!(last_strips(&h.ctx).iter().find(|s| s.group == Group::Properties).unwrap().tabs.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![1]);
+        assert!(g.shown(&h.state().ui.panels), "{theme:?}: closing one tab keeps the group");
+        assert_eq!(*g.tab_mut(&mut h.state_mut().ui.dock_tabs), 1);
+        let rest: Vec<(usize, &str)> = names.iter().copied().enumerate().skip(1).collect();
+        assert_eq!(h.state().ui.dock.visible_tabs(g, pro), rest);
+        let strip: Vec<usize> = last_strips(&h.ctx).iter().find(|s| s.group == g).unwrap().tabs.iter().map(|(i, _)| *i).collect();
+        assert_eq!(strip, rest.iter().map(|(i, _)| *i).collect::<Vec<_>>());
 
-        // Close the only remaining tab: hide this group, not all other dock groups.
-        right_click_tab(&mut h, Group::Properties, 1);
-        h.get_by_label("Close").click();
-        h.run_steps(3);
-        assert!(!h.state().ui.panels.properties);
-        assert!(h.state().ui.panels.layers && h.state().ui.panels.color);
+        // Close the remaining tabs: the last one hides this group, not the other dock groups.
+        for i in 1..names.len() {
+            right_click_tab(&mut h, g, i);
+            h.get_by_label("Close").click();
+            h.run_steps(3);
+        }
+        assert!(!g.shown(&h.state().ui.panels), "{theme:?}");
+        assert!(h.state().ui.panels.color, "{theme:?}");
 
-        // Window › Properties reopens only the requested tab; hidden tabs stay hidden.
+        // The Window menu reopens only the requested tab; hidden tabs stay hidden.
         let ctx = h.ctx.clone();
-        crate::menus::invoke(h.state_mut(), &ctx, "window.panel.properties", json!({})).unwrap();
+        crate::menus::invoke(h.state_mut(), &ctx, window, json!({})).unwrap();
         h.run_steps(3);
-        assert!(h.state().ui.panels.properties && !h.state().ui.dock.is_collapsed(Group::Properties));
-        assert_eq!(h.state().ui.dock.visible_tabs(Group::Properties, is_pro(theme)), vec![(0, "Properties")]);
+        assert!(g.shown(&h.state().ui.panels) && !h.state().ui.dock.is_collapsed(g));
+        assert_eq!(h.state().ui.dock.visible_tabs(g, pro), vec![(0, names[0])]);
 
         // A tab's Close Tab Group closes the entire group without hiding its one tab.
-        right_click_tab(&mut h, Group::Properties, 0);
+        right_click_tab(&mut h, g, 0);
         h.get_by_label("Close Tab Group").click();
         h.run_steps(3);
-        assert!(!h.state().ui.panels.properties);
-        assert_eq!(h.state().ui.dock.visible_tabs(Group::Properties, is_pro(theme)), vec![(0, "Properties")]);
+        assert!(!g.shown(&h.state().ui.panels));
+        assert_eq!(h.state().ui.dock.visible_tabs(g, pro), vec![(0, names[0])]);
     }
 }
 
