@@ -3467,7 +3467,7 @@ mod footer_menu_tests {
         let ctx = egui::Context::default();
         let rect = Rect::from_min_size(Pos2::ZERO, vec2(300.0, 100.0));
         let pos = pos2(35.0, 20.0);
-        let mut frame = |events: Vec<egui::Event>| {
+        let frame = |events: Vec<egui::Event>| {
             let mut opened = false;
             let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(rect), events, ..Default::default() }, |ui| {
                 let response = ui.add_sized([100.0, 28.0], egui::Button::new("Footer menu"));
