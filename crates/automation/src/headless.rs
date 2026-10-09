@@ -145,7 +145,11 @@ impl Headless {
         let is_native = format
             .map(|f| f.trim_start_matches('.').eq_ignore_ascii_case("pcraft"))
             .unwrap_or_else(|| target.extension().is_some_and(|e| e.eq_ignore_ascii_case("pcraft")));
-        if is_native {
+        // A pathless save of an opened PSD/PSB is also a save to the document's own
+        // layered format. It has already passed the same-format safeguard above;
+        // a successful write must therefore clear the dirty state just like .pcraft.
+        let saved_in_place = path.is_none() && stored_path.as_deref().is_some_and(file_cmds::saves_in_place);
+        if is_native || saved_in_place {
             // Saving by index must not retarget the next automation command.
             let previously_active = self.session.active_index();
             self.session.set_active(i);
