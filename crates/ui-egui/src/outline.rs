@@ -123,6 +123,31 @@ mod tests {
         assert!(s.contains(&([10, 3], [10, 7])));
     }
 
+    /// #1554: cover the large-grid path that uses scoped threads rather than
+    /// joining the background-filter Rayon pool.
+    #[test]
+    fn large_outline_keeps_outer_and_inner_edges() {
+        let mut mask = Surface::new(PixelFormat::GRAY8);
+        let outer = Rect::new(13, 17, 649, 529);
+        let hole = Rect::new(301, 219, 351, 319);
+        mask.fill_rect(outer, &[1.0]);
+        mask.fill_rect(hole, &[0.0]);
+        let segments = outline_scaled(&mask, mask.content_bounds(), 1);
+        assert_eq!(segments.len(), 8, "{segments:?}");
+        for edge in [
+            ([13, 17], [649, 17]),
+            ([13, 529], [649, 529]),
+            ([13, 17], [13, 529]),
+            ([649, 17], [649, 529]),
+            ([301, 219], [351, 219]),
+            ([301, 319], [351, 319]),
+            ([301, 219], [301, 319]),
+            ([351, 219], [351, 319]),
+        ] {
+            assert!(segments.contains(&edge), "missing {edge:?}: {segments:?}");
+        }
+    }
+
     #[test]
     fn hole_adds_inner_edges() {
         let mut m = Surface::new(PixelFormat::GRAY8);
