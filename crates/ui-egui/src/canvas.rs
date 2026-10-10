@@ -1911,6 +1911,12 @@ fn pro_tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
     TabStrip { rect: strip, tabs: doc_tabs }
 }
 
+/// A selected Hand tool yields primary pointer gestures to an active Free Transform.
+/// Explicit Space/middle-button Hand remains a temporary pan regardless of the tool (#2302).
+fn hand_pan_active(tool: Tool, transforming: bool, temporary: bool, middle: bool) -> bool {
+    tool == Tool::Hand && (!transforming || temporary || middle)
+}
+
 /// Where the document tabs were drawn (opening files' tabs aren't slots): a file dropped on the
 /// strip opens at the slot under the pointer.
 #[derive(Clone, Debug, PartialEq)]
@@ -2490,6 +2496,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         None if middle => Tool::Hand,
         None => app.ui.tool,
     };
+    // A selected Hand tool must not steal Free Transform handle drags (#2302).
+    // Explicit temporary Hand (Space) and middle-button panning still work.
+    let hand_pan = hand_pan_active(tool, app.ui.transform.is_some(), temporary.is_some(), middle);
     // Zoom direction: the temporary zoom key decides, else ⌥ (Zoom tool).
     let zoom_out = |alt: bool| match temporary {
         Some(crate::hold_keys::Temporary::ZoomOut) => true,
@@ -2505,7 +2514,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         let picking = primary && (crate::color_picker_ui::top(app).is_some() || curves_picking);
         let range_picking =
             primary && app.ui.dialogs.last().is_some_and(|d| crate::color_range_ui::owns(&d.fields) && crate::color_range_ui::controls(&d.fields).sampling);
-        let hand = app.ui.tool == Tool::Hand && !picking && !range_picking;
+        let hand = hand_pan && !picking && !range_picking;
         if let Some(d) = crate::dialogs::pan_delta(&ctx, rect, hand) {
             let d = xf.unmap_vec(d) / (view.zoom / ppp);
             view.center[0] -= d.x;
@@ -2538,7 +2547,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::color_range_ui::canvas_eyedropper(app, &ctx, p, press);
         }
     }
-    if tool == Tool::Hand && response.dragged() {
+    if hand_pan && response.dragged() {
         let d = xf.unmap_vec(response.drag_delta()) / (view.zoom / ppp);
         view.center[0] -= d.x;
         view.center[1] -= d.y;
@@ -2614,7 +2623,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::canvas_tool_menu::open(app, tool, [p.x, p.y]);
         }
         // The (temporary) Hand pans above; its gestures never reach the tool underneath.
-        if tool == Tool::Hand {
+        if hand_pan {
             (buttons.started, buttons.dragged, buttons.stopped) = (false, false, false);
         }
         // Rotate View: drag around the view centre. Compass clicks are not a rotate drag.
@@ -4514,6 +4523,15 @@ mod tests {
             h.run_steps(2);
             assert!(h.state().0.session.documents().is_empty(), "{os:?}: the × closes the document");
         }
+    }
+
+    #[test]
+    fn hand_tool_does_not_intercept_free_transform_handle_drags() {
+        assert!(hand_pan_active(Tool::Hand, false, false, false));
+        assert!(!hand_pan_active(Tool::Hand, true, false, false));
+        assert!(hand_pan_active(Tool::Hand, true, true, false), "Space temporarily pans");
+        assert!(hand_pan_active(Tool::Hand, true, false, true), "middle button pans");
+        assert!(!hand_pan_active(Tool::Move, true, false, false));
     }
 
     #[test]
