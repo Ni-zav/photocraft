@@ -367,8 +367,7 @@ fn shift_constrains_polygonal_lasso_segments_but_unmodified_clicks_remain_free()
 #[test]
 fn shift_polygonal_lasso_snap_has_all_eight_directions_and_handles_zero_length() {
     let origin = [200.0, 150.0];
-    let directions = [[40.0, 1.0], [40.0, 25.0], [1.0, 40.0], [-40.0, 25.0],
-                      [-40.0, -1.0], [-40.0, -25.0], [-1.0, -40.0], [40.0, -25.0]];
+    let directions = [[40.0, 1.0], [40.0, 25.0], [1.0, 40.0], [-40.0, 25.0], [-40.0, -1.0], [-40.0, -25.0], [-1.0, -40.0], [40.0, -25.0]];
     for delta in directions {
         let end = crate::canvas::constrained_polygon_point(origin, [origin[0] + delta[0], origin[1] + delta[1]]);
         let dx = end[0] - origin[0];

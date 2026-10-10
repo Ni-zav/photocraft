@@ -4221,7 +4221,7 @@ pub(crate) fn selection_mode(app: &PhotocraftApp, m: egui::Modifiers) -> &'stati
 
 /// Shift constrains a Polygonal Lasso segment to Photoshop's 45° directions.
 /// Work in document coordinates so zoom, view rotation and mirroring cannot skew it.
-fn constrained_polygon_point(from: [f64; 2], point: [f64; 2]) -> [f64; 2] {
+pub(crate) fn constrained_polygon_point(from: [f64; 2], point: [f64; 2]) -> [f64; 2] {
     let dx = point[0] - from[0];
     let dy = point[1] - from[1];
     if !dx.is_finite() || !dy.is_finite() {
@@ -4256,11 +4256,7 @@ fn polygon_click(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifiers)
     }
     // Only constrain segments after the first vertex; the first click still sets selection intent.
     // Alt-drag is freehand and must not snap to an angle.
-    let point = if mods.shift && !mods.alt {
-        app.ui.polygon.last().copied().map_or([x, y], |last| constrained_polygon_point(last, [x, y]))
-    } else {
-        [x, y]
-    };
+    let point = if mods.shift && !mods.alt { app.ui.polygon.last().copied().map_or([x, y], |last| constrained_polygon_point(last, [x, y])) } else { [x, y] };
     app.ui.polygon.push(point);
 }
 
