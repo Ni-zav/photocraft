@@ -382,12 +382,50 @@ pub fn xmp_with_resolution(xmp: &str, ppi: (f32, f32)) -> Cow<'_, str> {
     if out == xmp { Cow::Borrowed(xmp) } else { Cow::Owned(out) }
 }
 
+/// A source EXIF block's IFD1 points to an embedded JPEG thumbnail of the *source*.
+/// Exporting edited pixels must not keep advertising that stale preview (#2147).
+/// Unlink IFD1, without moving any metadata or changing offsets in other IFDs.
+/// This operates on EXIF metadata, not the multi-page TIFF container.
+fn without_stale_exif_thumbnail(exif: &[u8]) -> Cow<'_, [u8]> {
+    let body = tiff_body(exif);
+    let Some((order, first, count, entry_bytes, big)) = ifd0_entries(body) else {
+        return Cow::Borrowed(exif);
+    };
+    let Some(at) = count.checked_mul(entry_bytes).and_then(|n| first.checked_add(n)) else {
+        return Cow::Borrowed(exif);
+    };
+    let next = if big { order.u64(body, at) } else { order.u32(body, at).map(u64::from) };
+    if !next.is_some_and(|offset| offset != 0) {
+        return Cow::Borrowed(exif);
+    }
+    let Some(start) = exif.len().checked_sub(body.len()).and_then(|prefix| prefix.checked_add(at)) else {
+        return Cow::Borrowed(exif);
+    };
+    let Some(end) = start.checked_add(if big { 8 } else { 4 }) else {
+        return Cow::Borrowed(exif);
+    };
+    let mut out = exif.to_vec();
+    if let Some(pointer) = out.get_mut(start..end) {
+        pointer.fill(0);
+        Cow::Owned(out)
+    } else {
+        Cow::Borrowed(exif)
+    }
+}
+
 /// The EXIF to write next to upright pixels at resolution `ppi`: Orientation 1 (see
 /// [`upright_exif`]) and, when `ppi` is known, the resolution (see [`exif_with_resolution`]).
+/// Discard the source's embedded thumbnail reference: it still depicts the pre-edit image.
 pub fn export_exif(exif: &[u8], ppi: Option<(f32, f32)>) -> Cow<'_, [u8]> {
     let up = upright_exif(exif);
-    let Some(ppi) = ppi else { return up };
-    if let Cow::Owned(v) = exif_with_resolution(&up, ppi) {
+    let resolved = match ppi {
+        Some(ppi) => exif_with_resolution(&up, ppi),
+        None => Cow::Borrowed(up.as_ref()),
+    };
+    if let Cow::Owned(v) = without_stale_exif_thumbnail(&resolved) {
+        return Cow::Owned(v);
+    }
+    if let Cow::Owned(v) = resolved {
         return Cow::Owned(v);
     }
     up
