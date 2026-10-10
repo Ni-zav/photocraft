@@ -223,7 +223,8 @@ fn value_field_in(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<
         ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     }
     let suffix_w = if suffix.is_empty() { 0.0 } else { 16.0 };
-    let field = Rect::from_min_max(rect.min + vec2(4.0, 2.0), rect.max - vec2(4.0 + suffix_w + trailing, 2.0));
+    // 1 pt higher than centred: digits have no descenders, so centred text looks low.
+    let field = Rect::from_min_max(rect.min + vec2(4.0, 1.0), rect.max - vec2(4.0 + suffix_w + trailing, 3.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
     let fine = range.end() - range.start() <= 10.0;
     let (lo, hi) = (*range.start(), *range.end());
@@ -890,6 +891,7 @@ fn dropdown_with<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, o
     let reveal_id = wheel_id.with("reveal");
     let mut reveal = wheel && ui.data_mut(|d| d.remove_temp::<bool>(reveal_id)).unwrap_or(false);
     let response = egui::ComboBox::from_id_salt(id).selected_text(label).width(width).height(420.0).icon(chevron_icon).show_ui(ui, |ui| {
+        fit_widest_option(ui, options.iter().map(|(_, l)| tl!(l)));
         // Over the open list the wheel steps the value too, instead of scrolling the list.
         over_list = wheel && ui.rect_contains_pointer(ui.clip_rect());
         if over_list {
@@ -927,6 +929,16 @@ fn dropdown_with<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, o
         hovered = None;
     }
     (chosen, hovered)
+}
+
+/// Makes an open dropdown list as wide as its widest option is when hovered, from the start. egui
+/// takes a plain row's frame stroke off its padding but draws a hovered row with the stroke, so a
+/// row grows by two stroke widths under the pointer, and the list never shrinks back: scrolling
+/// the widest option under the pointer widened the list (#2607).
+fn fit_widest_option<'a>(ui: &mut Ui, labels: impl Iterator<Item = &'a str>) {
+    let extend = Some(egui::TextWrapMode::Extend);
+    let widest = labels.map(|l| egui::WidgetText::from(l).into_galley(ui, extend, f32::INFINITY, egui::FontSelection::Default).size().x).fold(0.0, f32::max);
+    ui.set_min_width(widest + 2.0 * ui.spacing().button_padding.x);
 }
 
 /// Whether the pointer still rests where the wheel last stepped dropdown `id` (`wheeled`: it did
@@ -1049,6 +1061,7 @@ pub fn dropdown_with_tooltips<T: PartialEq + Clone>(ui: &mut Ui, id: &str, curre
     let label = options.iter().find(|(v, _, _)| v == current).map(|(_, l, _)| tl!(l)).unwrap_or("—");
     let mut changed = false;
     let response = egui::ComboBox::from_id_salt(id).selected_text(label).width(width).height(420.0).icon(chevron_icon).show_ui(ui, |ui| {
+        fit_widest_option(ui, options.iter().map(|(_, l, _)| tl!(l)));
         for (v, l, tip) in options {
             if ui.selectable_label(v == current, tl!(l)).on_hover_text(tl!(tip)).clicked() {
                 *current = v.clone();
@@ -1128,12 +1141,13 @@ pub fn fmt_num2(v: f64) -> String {
     format!("{r:.2}").trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// Parses a typed number or simple arithmetic such as `1280*2` or `20*2+5-2` (`+ - * /`,
-/// `*` and `/` first). Like egui's own parser it ignores whitespace and reads `−` as `-`.
-/// `None` for anything else, including a division by zero.
+/// Parses a typed number or bounded arithmetic, including parentheses and powers.
+/// Preserves egui-compatible whitespace and Unicode minus handling.
 pub fn parse_num(text: &str) -> Option<f64> {
-    let s = clean(text);
-    s.parse().ok().or_else(|| sum(&s)).filter(|v: &f64| v.is_finite())
+    if text.len() > 1024 {
+        return None;
+    }
+    crate::numeric_expression::parse(&clean(text))
 }
 
 /// A plain typed number, no arithmetic.
@@ -1143,30 +1157,6 @@ fn plain(text: &str) -> Option<f64> {
 
 fn clean(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).map(|c| if c == '−' { '-' } else { c }).collect()
-}
-
-/// `a+b-c…`: a `+` or `-` right after an operand splits terms; anywhere else it is a sign.
-fn sum(s: &str) -> Option<f64> {
-    let (mut total, mut sign, mut start, mut prev) = (0.0, 1.0, 0, ' ');
-    for (i, c) in s.char_indices() {
-        if matches!(c, '+' | '-') && i > start && !matches!(prev, '*' | '/' | 'e' | 'E') {
-            total += sign * product(s.get(start..i)?)?;
-            sign = if c == '-' { -1.0 } else { 1.0 };
-            start = i + 1;
-        }
-        prev = c;
-    }
-    Some(total + sign * product(s.get(start..)?)?)
-}
-
-/// `a*b/c…`, left to right.
-fn product(s: &str) -> Option<f64> {
-    let mut factors = s.split(['*', '/']).map(str::parse::<f64>);
-    let mut acc = factors.next()?.ok()?;
-    for (op, x) in s.matches(['*', '/']).zip(factors) {
-        acc = if op == "*" { acc * x.ok()? } else { acc / x.ok()? };
-    }
-    Some(acc)
 }
 
 #[cfg(test)]
@@ -1227,6 +1217,21 @@ mod tests {
         h.get_by_role(egui::accesskit::Role::SpinButton).click();
         h.run();
         h
+    }
+
+    /// Digits have no descenders, so the number sits 1 pt above the box's centre to look centred.
+    #[test]
+    fn value_field_digits_sit_one_point_above_centre() {
+        let mut h = Harness::new_ui_state(
+            |ui, s: &mut (f32, egui::Rect)| {
+                s.1 = super::value_field_in(ui, &mut s.0, 0.0..=100.0, "px", 80.0, 0.0).1;
+            },
+            (50.0, egui::Rect::NOTHING),
+        );
+        h.run();
+        let number = h.get_by_role(egui::accesskit::Role::SpinButton).rect();
+        let field = h.state().1;
+        assert!((field.center().y - number.center().y - 1.0).abs() < 0.01, "field {field:?}, number {number:?}");
     }
 
     #[test]
@@ -1353,10 +1358,13 @@ mod tests {
             ("−4", -4.0),
             ("1 234", 1234.0),
             ("1e3/2", 500.0),
+            ("(2+3)*4", 20.0),
+            ("2^3", 8.0),
+            ("10%3", 1.0),
         ] {
             assert_eq!(parse_num(text), Some(want), "{text}");
         }
-        for text in ["", "abc", "5+", "*2", "4/0", "0/0", "1+*2", "(2+3)", "1e400"] {
+        for text in ["", "abc", "5+", "*2", "4/0", "0/0", "1+*2", "(2+3", "1e400"] {
             assert_eq!(parse_num(text), None, "{text}");
         }
     }
@@ -1451,6 +1459,38 @@ mod tests {
         h.key_press(egui::Key::ArrowUp);
         h.run();
         assert_eq!(*h.state(), 0);
+    }
+
+    /// Scrolling rows under the pointer doesn't widen the list: it is as wide as the widest
+    /// option hovered from the start (#2607).
+    #[test]
+    fn dropdown_list_keeps_its_width_while_scrolling() {
+        use photocraft_color::BlendMode;
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 700.0)).build_ui_state(
+            |ui, mode: &mut BlendMode| {
+                let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
+                super::dropdown(ui, "brush-mode", mode, &opts, 96.0);
+            },
+            BlendMode::Normal,
+        );
+        // The app's theme strokes plain rows, which is what made hovered rows wider.
+        crate::theme::apply(&h.ctx, crate::theme::ThemeKind::ProMedium);
+        h.run();
+        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        h.run();
+        let list = |h: &Harness<'_, BlendMode>| h.ctx.memory(|m| m.layer_ids().filter(|l| l.order == egui::Order::Foreground).find_map(|l| m.area_rect(l.id)));
+        let Some(open) = list(&h) else { panic!("the list is open") };
+        for _ in 0..30 {
+            h.hover_at(open.center());
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, -1.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            });
+            h.run();
+            assert_eq!(list(&h).map(|r| r.width()), Some(open.width()));
+        }
     }
 
     const MODES: [(usize, &str); 4] = [(0, "Normal"), (1, "Dissolve"), (2, "Darken"), (3, "Multiply")];
