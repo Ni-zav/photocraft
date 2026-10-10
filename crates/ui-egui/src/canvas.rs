@@ -1454,6 +1454,11 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     }
     if !app.ui.view.hides_tabs() || opening {
+        // Spectrum document tabs sit directly on the canvas; the inherited egui item gap
+        // leaves an unintended blank strip between the two (#2188).
+        if crate::theme::Tokens::get(ui.ctx()).pro {
+            ui.spacing_mut().item_spacing.y = 0.0;
+        }
         app.tab_strip = Some(tabs(app, ui));
         drop_slot_line(app, ui);
     }
@@ -4509,6 +4514,28 @@ mod tests {
             h.get_by_label("Close").click();
             h.run_steps(2);
             assert!(h.state().0.session.documents().is_empty(), "{os:?}: the × closes the document");
+        }
+    }
+
+    /// The Spectrum tab strip should touch the canvas, not inherit egui's default
+    /// vertical item gap. Both Photoshop-style brightness settings use this layout.
+    #[test]
+    fn spectrum_document_tab_strip_meets_canvas() {
+        for kind in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::ProMedium] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width": 16, "height": 16})).unwrap();
+            app.sync_views();
+            let mut h = egui_kittest::Harness::builder()
+                .with_size(egui::vec2(720.0, 480.0))
+                .build_ui_state(|ui, app: &mut PhotocraftApp| documents(app, ui), app);
+            PhotocraftApp::setup_context(&h.ctx, kind);
+            h.run_steps(2);
+            let tab_bottom = h.state().tab_strip.as_ref().unwrap().rect.bottom();
+            let canvas_top = h.state().last_canvas_rect.top();
+            assert!(
+                (canvas_top - tab_bottom).abs() <= 1.0,
+                "{kind:?}: tabs end at {tab_bottom}, canvas begins at {canvas_top}"
+            );
         }
     }
 
