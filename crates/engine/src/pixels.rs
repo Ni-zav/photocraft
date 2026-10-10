@@ -170,6 +170,6 @@ pub fn merge_down(doc_bounds: Rect, lower: &Layer, upper: &Layer, format: photoc
     merged.opacity = 1.0;
     // Merge Down replaces the lower layer, so keep its editing restrictions.
     // In particular, a merged Background must remain opaque and position-locked.
-    merged.locks = lower.locks.clone();
+    merged.locks = lower.locks;
     merged
 }
