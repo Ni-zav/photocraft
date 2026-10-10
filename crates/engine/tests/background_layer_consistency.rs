@@ -110,9 +110,13 @@ fn transparent_canvas_extension_converts_background_to_a_paintable_layer() {
     for depth in [8, 16, 32] {
         let mut s = background(depth);
         let original = active(&s).id;
-        s.execute("image.canvasSize", json!({
-            "width": 24, "height": 12, "anchor": "left", "extensionColor": "transparent"
-        })).unwrap();
+        s.execute(
+            "image.canvasSize",
+            json!({
+                "width": 24, "height": 12, "anchor": "left", "extensionColor": "transparent"
+            }),
+        )
+        .unwrap();
         assert_eq!(active(&s).id, original);
         assert_eq!(active(&s).name, "Layer 0");
         assert!(!active(&s).locks.transparency && !active(&s).locks.position);
@@ -133,17 +137,25 @@ fn transparent_canvas_extension_converts_background_to_a_paintable_layer() {
 #[test]
 fn opaque_or_no_op_canvas_size_keeps_the_background() {
     let mut s = background(8);
-    s.execute("image.canvasSize", json!({
-        "width": 24, "height": 12, "anchor": "left", "extensionColor": "#00ff00"
-    })).unwrap();
+    s.execute(
+        "image.canvasSize",
+        json!({
+            "width": 24, "height": 12, "anchor": "left", "extensionColor": "#00ff00"
+        }),
+    )
+    .unwrap();
     assert_eq!(active(&s).name, "Background");
     assert!(active(&s).locks.transparency && active(&s).locks.position);
     assert_eq!(pixel(&s, 20, 4), [0.0, 1.0, 0.0, 1.0]);
     assert!(s.undo());
 
-    s.execute("image.canvasSize", json!({
-        "width": 16, "height": 12, "anchor": "left", "extensionColor": "transparent"
-    })).unwrap();
+    s.execute(
+        "image.canvasSize",
+        json!({
+            "width": 16, "height": 12, "anchor": "left", "extensionColor": "transparent"
+        }),
+    )
+    .unwrap();
     assert_eq!(active(&s).name, "Background");
     assert!(s.is_enabled("layer.new.layerFromBackground"));
 }
