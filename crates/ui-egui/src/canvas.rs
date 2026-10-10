@@ -533,6 +533,7 @@ pub(crate) fn freehand_tool(tool: Tool) -> bool {
             | Tool::Eraser
             | Tool::BackgroundEraser
             | Tool::HistoryBrush
+            | Tool::Remove
             | Tool::SpotHealing
             | Tool::Healing
             | Tool::CloneStamp
@@ -765,6 +766,9 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
         return shown;
     }
     if let Some(shown) = crate::solid_fill_ui::display_doc(app, idx) {
+        return shown;
+    }
+    if let Some(shown) = crate::shape_stroke_ui::display_doc(app, idx) {
         return shown;
     }
     if let Some(shown) = crate::type_transform::display_doc(app, idx) {
@@ -1182,15 +1186,10 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &egui::Contex
     // Previews edit what the command will: a targeted layer mask included (#780).
     let params = app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields));
     let st = app.session.documents().get(idx)?;
-    let request = crate::filter_dialog::FilterPreviewKey {
-        doc: st.doc.id,
-        revision: st.revision,
-        dialog: d.id,
-        active: st.active_layer,
-        command: cmd,
-        params,
-        k: crate::proxy::preview_factor(&st.doc, crate::proxy::reduced_previews(app)),
-    };
+    // Filters whose features don't scale with a proxy preview at full resolution (#2063).
+    let k = crate::filter_dialog::preview_factor(&cmd, &params, crate::proxy::preview_factor(&st.doc, crate::proxy::reduced_previews(app)));
+    let request =
+        crate::filter_dialog::FilterPreviewKey { doc: st.doc.id, revision: st.revision, dialog: d.id, active: st.active_layer, command: cmd, params, k };
     let key = request.doc.0 ^ (1u64 << 61);
     // Every filter's preview computes off the UI thread in the desktop app: Gaussian Blur at
     // 1000 px takes long enough to freeze the window. Once the slider settles, a preview still
@@ -2172,7 +2171,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // `View::zoom` is device pixels per document pixel; this canvas's geometry is in its own
     // viewport's egui points. A document window can sit on another display with a different
     // scale, so only the primary canvas records `app.ppp` for the frame's shared helpers
-    // (`point_zoom`, the navigator, control-channel coordinate mapping).
+    // (`point_zoom`, the navigator, control-channel coordinate mapping). `pixels_per_point`
+    // folds in the display scale and Interface › UI Scale alike, so dividing by it keeps 100%
+    // one document pixel per physical display pixel at any UI scale (#2121).
     let ppp = ctx.pixels_per_point();
     if primary {
         app.ppp = ppp;
@@ -3454,7 +3455,12 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
         t if t.is_brushlike() || t == Tool::QuickSelection => {
             // Retouching strokes preview as a translucent trail of the brush footprint: a mask,
             // not a brush-wide egui polyline (which zoomed in tessellates into wedges, #189).
-            let col = Color32::from_white_alpha(if t == Tool::QuickSelection { 40 } else { 60 });
+            let col = match t {
+                Tool::QuickSelection => Color32::from_white_alpha(40),
+                // The Remove Tool tints what it will remove, like Photoshop's.
+                Tool::Remove => crate::theme::Tokens::get(painter.ctx()).danger.gamma_multiply(0.45),
+                _ => Color32::from_white_alpha(60),
+            };
             let Some(st) = app.session.active() else { return };
             let size = [st.doc.size.width, st.doc.size.height];
             let doc_rect = xf.doc_rect(st.doc.bounds());
