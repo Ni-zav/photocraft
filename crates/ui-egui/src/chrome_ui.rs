@@ -143,6 +143,7 @@ pub fn status_bar_pro(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     icons::paint(ui, r, "chevron-right", 11.0, t.text_dim);
     let resp = resp.on_hover_text(tl!("Show"));
     egui::Popup::menu(&resp).show(|ui| {
+        style_status_info_menu(ui, &t);
         ui.set_min_width(200.0);
         for (key, label) in STATUS_INFO {
             let on = app.ui.chrome.status_info == *key;
@@ -153,6 +154,21 @@ pub fn status_bar_pro(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
     });
     status_message(app, ui, &t);
+}
+
+/// Give the status information popup the same Spectrum menu row size and selected/hover
+/// contrast as the File menu. The egui popup defaults left these rows compressed (#2187).
+fn style_status_info_menu(ui: &mut egui::Ui, t: &Tokens) {
+    ui.spacing_mut().item_spacing.y = 0.0;
+    ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+    let visuals = &mut ui.style_mut().visuals;
+    visuals.widgets.hovered.weak_bg_fill = t.accent;
+    visuals.widgets.hovered.bg_fill = t.accent;
+    visuals.widgets.hovered.bg_stroke = Stroke::NONE;
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, egui::Color32::WHITE);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(3);
+    visuals.selection.bg_fill = t.accent;
+    visuals.selection.stroke = Stroke::new(1.0, egui::Color32::WHITE);
 }
 
 /// The latest status message after a separator, in the warning colour when it is an error.
@@ -338,6 +354,26 @@ mod tests {
         h.run_steps(2);
         assert!(h.query_by_label("No document").is_some());
         assert!(h.query_by_label(&e).is_some(), "status bar shows {e:?}");
+    }
+
+    #[test]
+    fn status_info_menu_matches_spectrum_row_spacing_and_contrast() {
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::Pro);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let t = Tokens::get(ui.ctx());
+            assert!(t.pro);
+            style_status_info_menu(ui, &t);
+            assert_eq!(ui.spacing().item_spacing.y, 0.0);
+            assert_eq!(ui.spacing().button_padding, vec2(10.0, 4.0));
+            let v = &ui.style().visuals;
+            assert_eq!(v.widgets.hovered.bg_fill, t.accent);
+            assert_eq!(v.widgets.hovered.fg_stroke.color, egui::Color32::WHITE);
+            assert_eq!(v.widgets.hovered.bg_stroke, Stroke::NONE);
+            assert_eq!(v.selection.bg_fill, t.accent);
+            assert_eq!(v.selection.stroke.color, egui::Color32::WHITE);
+        });
+        output.textures_delta.clear();
     }
 
     #[test]
