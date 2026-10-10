@@ -3736,7 +3736,11 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             if !crate::move_ui::moves_selected_pixels(app) && app.ui.tool_options.move_auto_select != mods.command {
                 let target = app.ui.tool_options.move_target.clone();
                 let mode = if mods.shift { "add" } else { "replace" };
-                let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+                if app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode})).is_ok() {
+                    // Snapping began before Auto-Select picked the layer. Update the moving box,
+                    // target exclusions and smart guides to follow the layer that will move.
+                    crate::snap_ui::refresh_move_after_pick(app, [x, y]);
+                }
             }
             // A locked layer: no drag, and Photoshop's message once the pointer moves (`move_lock`).
             if crate::move_lock::blocked(app, tool, [x, y], mods) {

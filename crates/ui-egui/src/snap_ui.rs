@@ -193,6 +193,14 @@ fn begin(app: &mut PhotocraftApp, p: [f64; 2]) {
     app.prefs_rt.snap = Some(ActiveSnap { gesture, start: p, targets, smart, disabled: false });
 }
 
+/// Auto-Select changes the moving layer after the press already initialized snapping.
+/// Rebuild the move gesture so its bounds and excluded targets match the picked layer.
+pub(crate) fn refresh_move_after_pick(app: &mut PhotocraftApp, press: [f64; 2]) {
+    if app.ui.tool == Tool::Move && app.ui.transform.is_none() {
+        begin(app, press);
+    }
+}
+
 /// Round to whole pixels when Preferences › Tools asks vector tools and transforms to snap to
 /// the pixel grid.
 fn pixel_round(app: &PhotocraftApp, p: [f64; 2]) -> [f64; 2] {
@@ -348,6 +356,29 @@ mod tests {
     fn mover_bounds(app: &PhotocraftApp) -> photocraft_geom::Rect {
         let st = app.session.active().unwrap();
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
+    }
+
+    #[test]
+    fn auto_select_rebuilds_move_snap_for_newly_picked_layer() {
+        for select_empty in [false, true] {
+            let mut app = app_with_box();
+            app.ui.tool = Tool::Move;
+            app.ui.tool_options.move_auto_select = true;
+            let mover = app.session.active().unwrap().active_layer.unwrap();
+            if select_empty {
+                app.run("layer.new.layer", json!({"name": "empty"})).unwrap();
+            }
+            // Press on 'target', not on the previously selected 'mover'.
+            crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 325.0, y: 230.0, pressure: 1.0 }, egui::Modifiers::NONE);
+            let picked = app.session.active().unwrap().active_layer.unwrap();
+            assert_ne!(picked, mover);
+            match &app.prefs_rt.snap.as_ref().expect("move snap exists").gesture {
+                Gesture::Move { rect } => assert_eq!(*rect, [300.0, 200.0, 350.0, 260.0]),
+                other => panic!("wrong gesture after Auto-Select: {other:?}"),
+            };
+            // The box must still correspond to the target on an actual drag.
+            crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 325.0, y: 230.0 }, egui::Modifiers::NONE);
+        }
     }
 
     #[test]
