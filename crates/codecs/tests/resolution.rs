@@ -83,6 +83,46 @@ impl Exif {
 const LE: Exif = Exif { big: false };
 const BE: Exif = Exif { big: true };
 
+/// A valid IFD1 can embed the pre-edit JPEG as a separate thumbnail. Once pixels are
+/// edited, no export may point thumbnail-aware viewers back to that original image.
+#[test]
+fn jpeg_export_unlinks_source_embedded_exif_thumbnail_in_both_byte_orders() {
+    for e in [&LE, &BE] {
+        let old_thumb = Image::from_raw(4, 4, ChannelLayout::Rgb, SampleType::U8, [255, 0, 0].repeat(16)).unwrap();
+        let old_jpeg = encode(&old_thumb, Format::Jpeg, &EncodeOptions::default()).unwrap();
+        let mut exif = e.build(&[e.orientation(6), e.make()]);
+        // IFD0's last four bytes are its next-IFD pointer, currently zero.
+        let next_at = 8 + 2 + 2 * 12;
+        let ifd1_at = exif.len();
+        exif[next_at..next_at + 4].copy_from_slice(&e.u32(ifd1_at as u32));
+        // IFD1 with the JPEGInterchangeFormat / JPEGInterchangeFormatLength tags.
+        let preview_at = ifd1_at + 2 + 2 * 12 + 4;
+        exif.extend_from_slice(&e.u16(2));
+        for (tag, value) in [(513u16, preview_at as u32), (514u16, old_jpeg.len() as u32)] {
+            exif.extend_from_slice(&e.u16(tag));
+            exif.extend_from_slice(&e.u16(LONG));
+            exif.extend_from_slice(&e.u32(1));
+            exif.extend_from_slice(&e.u32(value));
+        }
+        exif.extend_from_slice(&e.u32(0));
+        exif.extend_from_slice(&old_jpeg);
+
+        let mut edited = Image::from_raw(16, 8, ChannelLayout::Rgb, SampleType::U8, [0, 220, 30].repeat(128)).unwrap();
+        edited.meta.exif = Some(exif.clone());
+        let bytes = encode(&edited, Format::Jpeg, &EncodeOptions::default()).unwrap();
+        let back = decode(&bytes).unwrap();
+        let embedded = back.meta.exif.as_deref().unwrap();
+        assert_eq!(&embedded[next_at..next_at + 4], &e.u32(0), "secondary IFD must be detached");
+        assert_eq!(&embedded[18..20], &e.u16(1), "the edited image is already upright");
+        assert!(embedded.windows(6).any(|b| b == b"NIKON\0"), "unrelated camera tags are preserved");
+        assert_eq!(back.dimensions(), (16, 8), "pixels are not replaced by the old thumbnail");
+        // A source with no IFD1 remains untouched: export may still correct orientation.
+        let without_thumb = e.build(&[e.orientation(6), e.make()]);
+        let output = photocraft_codecs::resolution::export_exif(&without_thumb, None);
+        assert_eq!(&output[next_at..next_at + 4], &e.u32(0));
+    }
+}
+
 /// A D3200-style block: Make, XResolution 300/1, YResolution 300/1, ResolutionUnit 2.
 fn camera_exif(e: &Exif) -> Vec<u8> {
     e.build(&[e.make(), e.x(300, 1), e.y(300, 1), e.unit(2)])
