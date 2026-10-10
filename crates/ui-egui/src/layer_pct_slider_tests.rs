@@ -138,10 +138,7 @@ fn the_background_layer_has_no_pop_up_slider() {
 
 #[test]
 fn dragging_opacity_and_fill_labels_scrubs_percentages_in_one_history_step() {
-    for (name, value) in [
-        ("Opacity", (|l: &photocraft_doc::Layer| l.opacity) as fn(&photocraft_doc::Layer) -> f32),
-        ("Fill", |l| l.fill_opacity),
-    ] {
+    for (name, value) in [("Opacity", (|l: &photocraft_doc::Layer| l.opacity) as fn(&photocraft_doc::Layer) -> f32), ("Fill", |l| l.fill_opacity)] {
         let mut h = harness();
         // The label, not the adjacent spin button or popup arrow, is the drag target.
         let rect = h

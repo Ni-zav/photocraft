@@ -1293,9 +1293,8 @@ fn label(ui: &mut egui::Ui, s: &str) {
 /// hitting the small number field. The unique drag ID coalesces every frame into one undo step.
 fn scrub_pct_label(ui: &mut egui::Ui, text: &str, percent: &mut f32) -> widgets::PopupFieldResponse {
     let t = Tokens::get(ui.ctx());
-    let resp = ui
-        .add(egui::Label::new(RichText::new(text).color(t.text_dim)).sense(Sense::click_and_drag()))
-        .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+    let resp =
+        ui.add(egui::Label::new(RichText::new(text).color(t.text_dim)).sense(Sense::click_and_drag())).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
     let key = resp.id.with("percent-label-drag");
     if resp.drag_started() {
         let stamp = ui.ctx().cumulative_pass_nr();
