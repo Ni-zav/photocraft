@@ -2329,6 +2329,29 @@ mod tests {
     }
 
     #[test]
+    fn removing_a_recent_entry_persists_without_affecting_other_entries() {
+        let (mut app, store) = app_with_store();
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        app.push_recent("/work/a.psd");
+        app.push_recent("/work/b.png");
+        app.remove_recent("/work/a.psd");
+        app.sync_recent();
+        assert_eq!(app.ui.recent_files, vec!["/work/b.png".to_string()]);
+        tick(&mut app, &ctx);
+        let saved = store.lock().unwrap().clone().unwrap();
+        let (mut restarted, _) = app_with_saved(Some(saved));
+        tick(&mut restarted, &ctx);
+        assert_eq!(restarted.ui.recent_files, vec!["/work/b.png".to_string()]);
+        restarted.push_recent("/work/a.psd");
+        assert_eq!(
+            restarted.ui.recent_files,
+            vec!["/work/a.psd".to_string(), "/work/b.png".to_string()],
+            "a removed file can appear again when explicitly reopened"
+        );
+    }
+
+    #[test]
     fn brush_picker_view_survives_a_restart() {
         let (mut app, store) = app_with_store();
         let ctx = egui::Context::default();

@@ -944,6 +944,14 @@ impl PhotocraftApp {
         self.session.prefs.edit(|p| p.file_handling.recent_files = r);
     }
 
+    /// Remove one Home-screen recent entry without touching its file on disk.
+    /// Update both the displayed list and the persisted preferences, so a subsequent
+    /// frame's sync_recent does not restore the removed path.
+    pub fn remove_recent(&mut self, path: &str) {
+        self.ui.recent_files.retain(|p| p != path);
+        self.session.prefs.edit(|p| p.file_handling.recent_files.retain(|p| p != path));
+    }
+
     /// File › Open Recent › Clear Recent File List.
     pub fn clear_recent(&mut self) {
         self.ui.recent_files.clear();

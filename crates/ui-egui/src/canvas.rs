@@ -2109,29 +2109,40 @@ fn home_recent(app: &mut PhotocraftApp, ui: &mut egui::Ui, recent: &[String]) {
     });
     ui.add_space(4.0);
     let mut open = None;
+    let mut remove = None;
     for path in recent {
         let name = crate::file_open::display_name(path);
         let folder = std::path::Path::new(path).parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
-        let (row, resp) = ui.allocate_exact_size(egui::vec2(width, HOME_RECENT_ROW), Sense::click());
+        let (row, resp) = ui.allocate_exact_size(egui::vec2(width, HOME_RECENT_ROW), Sense::hover());
         if resp.hovered() {
             ui.painter().rect_filled(row, t.radius_sm, t.hover);
         }
+        // Two disjoint click targets: removing a recent entry must never open it.
+        let remove_rect = Rect::from_center_size(pos2(row.right() - 14.0, row.center().y), vec2(22.0, 22.0));
+        let open_rect = Rect::from_min_max(row.min, pos2(remove_rect.left(), row.bottom()));
+        let open_resp = ui.interact(open_rect, ui.id().with(("home-recent-open", path)), Sense::click());
         let icon = Rect::from_center_size(egui::pos2(row.left() + 16.0, row.center().y), egui::vec2(16.0, 16.0));
         crate::icons::paint(ui, icon, "file", 14.0, t.text_dim);
         let x = row.left() + 32.0;
         let name_g = crate::tab_strip::elided(ui, &name, egui::FontId::proportional(12.5), t.text, 170.0);
         let name_w = name_g.size().x;
         ui.painter().galley(egui::pos2(x, row.center().y - name_g.size().y / 2.0), name_g, t.text);
-        let folder_max = (row.right() - 10.0 - (x + name_w + 14.0)).max(0.0);
+        let folder_right = remove_rect.left() - 8.0;
+        let folder_max = (folder_right - (x + name_w + 14.0)).max(0.0);
         if folder_max > 20.0 && !folder.is_empty() {
             let fg = crate::tab_strip::elided(ui, &folder, egui::FontId::proportional(11.5), t.text_faint, folder_max);
-            ui.painter().galley(egui::pos2(row.right() - 10.0 - fg.size().x, row.center().y - fg.size().y / 2.0), fg, t.text_faint);
+            ui.painter().galley(egui::pos2(folder_right - fg.size().x, row.center().y - fg.size().y / 2.0), fg, t.text_faint);
         }
-        if resp.on_hover_text(path).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        if open_resp.on_hover_text(path).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             open = Some(path.clone());
         }
+        if ui.put(remove_rect, egui::Button::new("×").frame(false)).on_hover_text(tl!("Remove")).clicked() {
+            remove = Some(path.clone());
+        }
     }
-    if let Some(path) = open
+    if let Some(path) = remove {
+        app.remove_recent(&path);
+    } else if let Some(path) = open
         && let Err(e) = app.open_path(&path)
     {
         app.open_failed(&crate::file_open::display_name(&path), &e);
