@@ -410,6 +410,25 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // Escape also dismisses a finished pixel selection, but only after in-progress tools,
+    // dialogs and menus have had first refusal. A drag or popup must not lose its selection.
+    if focus == Focus::None
+        && app.drag.is_none()
+        && app.ui.transform.is_none()
+        && app.ui.pen.is_none()
+        && !crate::lasso_ui::active(app)
+        && app.ui.polygon.is_empty()
+        && app.ui.crop_rect.is_none()
+        && !egui::Popup::is_any_open(ctx)
+        && app.session.active().is_some_and(|st| st.doc.selection.is_some())
+        && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+    {
+        if let Err(e) = app.run("select.deselect", json!({})) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        return;
+    }
     // Tool keys; pressing the key of the current group cycles within it. With Preferences ›
     // Tools › Use Shift Key for Tool Switch, only ⇧+key cycles and the plain key keeps the
     // group's current tool.
@@ -497,6 +516,36 @@ mod tests {
         assert!(crate::menus::is_enabled(&app, "edit.undo"));
         crate::menus::invoke(&mut app, &ctx, "edit.undo", serde_json::json!({})).unwrap();
         assert!(app.ui.pen.is_none());
+    }
+
+    #[test]
+    fn escape_deselects_when_no_tool_operation_is_in_progress() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 100, "height": 80})).unwrap();
+        app.run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 15})).unwrap();
+        let ctx = egui::Context::default();
+        let press = |app: &mut PhotocraftApp, key: Key, mods: Modifiers| {
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(mods),
+                    egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: mods }],
+                ..Default::default()
+            });
+            handle(app, &ctx);
+            ctx.end_pass().textures_delta.clear();
+        };
+        assert!(app.session.active().unwrap().doc.selection.is_some());
+        press(&mut app, Key::Escape, Modifiers::NONE);
+        assert!(app.session.active().unwrap().doc.selection.is_none());
+
+        // Existing Cmd/Ctrl+D continues to work.
+        app.run("select.rect", json!({"x": 1, "y": 2, "width": 10, "height": 11})).unwrap();
+        press(&mut app, Key::D, Modifiers::COMMAND);
+        assert!(app.session.active().unwrap().doc.selection.is_none());
+
+        // Modified Escape isn't a replacement for the documented plain Escape behavior.
+        app.run("select.rect", json!({"x": 5, "y": 6, "width": 9, "height": 10})).unwrap();
+        press(&mut app, Key::Escape, Modifiers::SHIFT);
+        assert!(app.session.active().unwrap().doc.selection.is_some());
     }
 
     #[test]
