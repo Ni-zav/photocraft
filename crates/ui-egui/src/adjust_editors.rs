@@ -1229,8 +1229,11 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             e.changed = true;
         }
     }
-    if response.drag_stopped() && ui.data_mut(|d| d.remove::<usize>(dragging)).is_some() {
-        e.commit = true;
+    if response.drag_stopped() {
+        if ui.data(|d| d.get_temp::<usize>(dragging)).is_some() {
+            e.commit = true;
+        }
+        ui.data_mut(|d| d.remove::<usize>(dragging));
     }
     ui.add_space(4.0);
     // Stops: colour, location, remove.
