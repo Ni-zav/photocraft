@@ -71,6 +71,39 @@ fn linear_raw_decodes_and_develops() {
     assert!(d.info.cfa.is_none());
 }
 
+
+#[test]
+fn monochrome_linearraw_develops_to_neutral_rgb_without_demosaic() {
+    let (w, h) = (32, 16);
+    let samples: Vec<u16> = (0..w * h).map(|i| 512 + (i % w) as u16 * 1800).collect();
+    let mut spec = DngSpec::cfa(w, h, samples.clone());
+    spec.monochrome_linear_raw = true;
+    spec.black = vec![512];
+    spec.white = 65535;
+
+    for storage in [DngStorage::Strips { rows: 8 }, DngStorage::DeflateStrips { rows: 8, predictor: 2 }] {
+        spec.storage = storage;
+        let raw = spec.build();
+        let sensor = sensor(&raw);
+        assert_eq!(sensor.samples, 1);
+        assert!(sensor.cfa.is_none(), "monochrome LinearRaw has no CFA");
+        assert_eq!(sensor.data, samples);
+        let developed = develop(&raw, &DevelopOptions::default()).unwrap();
+        assert_eq!((developed.width, developed.height), (w as u32, h as u32));
+        assert!(!developed.warnings.iter().any(|s| s.contains("white balance") || s.contains("colour matrix")));
+        let mut previous = 0;
+        for x in 0..w {
+            let at = (8 * w + x) * 3;
+            let pixel = &developed.rgb[at..at + 3];
+            assert_eq!(pixel[0], pixel[1], "green tinted pixel at x={x}");
+            assert_eq!(pixel[0], pixel[2], "blue tinted pixel at x={x}");
+            assert!(pixel[0] >= previous, "grayscale ramp lost its order");
+            previous = pixel[0];
+        }
+        assert!(previous > 25000, "image should not be all black");
+    }
+}
+
 /// `spec`'s file with its Orientation entry (a SHORT `from`) rewritten as a LONG `to`.
 fn with_long_orientation(spec: &DngSpec, from: u16, to: u32) -> Vec<u8> {
     let mut b = spec.build();

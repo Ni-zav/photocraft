@@ -391,8 +391,10 @@ pub enum DngStorage {
 pub struct DngSpec {
     pub width: usize,
     pub height: usize,
-    /// 1 (CFA) or 3 (LinearRaw).
+    /// 1 (CFA or monochrome LinearRaw) or 3 (RGB LinearRaw).
     pub samples: usize,
+    /// Store single-sample LinearRaw rather than a CFA mosaic.
+    pub monochrome_linear_raw: bool,
     /// Row-major samples (`width * height * samples`).
     pub data: Vec<u16>,
     pub bits: u16,
@@ -436,6 +438,7 @@ impl DngSpec {
             width,
             height,
             samples: 1,
+            monochrome_linear_raw: false,
             data,
             bits: 16,
             cfa: [0, 1, 1, 2],
@@ -500,14 +503,14 @@ impl DngSpec {
             (256, Val::Long(vec![self.width as u32])),
             (257, Val::Long(vec![self.height as u32])),
             (258, Val::Short(vec![self.bits; self.samples])),
-            (262, Val::Short(vec![if self.samples == 1 { 32803 } else { 34892 }])),
+            (262, Val::Short(vec![if self.samples == 1 && !self.monochrome_linear_raw { 32803 } else { 34892 }])),
             (277, Val::Short(vec![self.samples as u16])),
             (284, Val::Short(vec![1])),
             (50717, Val::Long(vec![self.white; self.samples])),
             (50713, Val::Short(vec![self.black_repeat.0, self.black_repeat.1])),
             (50714, Val::Long(self.black.clone())),
         ];
-        if self.samples == 1 {
+        if self.samples == 1 && !self.monochrome_linear_raw {
             raw.push((33421, Val::Short(vec![2, 2])));
             raw.push((33422, Val::Byte(self.cfa.to_vec())));
             raw.push((50710, Val::Byte(vec![0, 1, 2])));

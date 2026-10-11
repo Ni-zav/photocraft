@@ -190,19 +190,22 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
     if s.samples != 1 && s.samples != 3 {
         return Err(RawError::unsupported(format!("{} samples per pixel", s.samples)));
     }
-    // Working buffers: one f32 plane plus f32 RGB plus u16 RGB per pixel, and
-    // a green plane for non-Bayer patterns.
+    // Single-channel LinearRaw needs only the output RGB buffer, not the
+    // much larger intermediate float RGB buffer or any CFA demosaicing.
+    let monochrome = s.cfa.is_none() && s.samples == 1;
     let bayer = s.cfa.as_ref().is_none_or(|cfa| cfa.is_bayer());
-    opts.limits.check(c.width as u64, c.height as u64, if bayer { 4 + 12 + 6 } else { 4 + 4 + 12 + 6 })?;
+    opts.limits.check(c.width as u64, c.height as u64, if monochrome { 6 } else if bayer { 4 + 12 + 6 } else { 4 + 4 + 12 + 6 })?;
     let mut warnings = s.warnings.clone();
     let sc = Scale::new(s);
 
-    let neutral = resolve_neutral(s, opts, &sc, &mut warnings)?;
+    // A grayscale sensor is already neutral; estimating RGB white balance from
+    // one channel would manufacture an unnecessary grey-world warning.
+    let neutral = if monochrome { [1.0; 3] } else { resolve_neutral(s, opts, &sc, &mut warnings)? };
     let mult = neutral.map(|v| (1.0 / v) as f32);
 
     // Balanced camera → XYZ D50: a look fitted to the camera's JPEG, the file's calibration,
     // or the neutral fallback.
-    let look = opts.camera_look.as_ref().filter(|l| l.is_usable());
+    let look = if monochrome { None } else { opts.camera_look.as_ref().filter(|l| l.is_usable()) };
     if opts.camera_look.is_some() && look.is_none() {
         warnings.push("the supplied camera look is not usable (non-finite or singular); ignored".into());
     }
@@ -298,8 +301,9 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
         }
         None => {
             pattern = None;
-            rgb = vec![0.0f32; w * h * 3];
-            par::chunks_mut(&mut rgb, band * w * 3, |b, chunk| {
+            rgb = if monochrome { Vec::new() } else { vec![0.0f32; w * h * 3] };
+            if !monochrome {
+                par::chunks_mut(&mut rgb, band * w * 3, |b, chunk| {
                 for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
                     let y = c.y + b * band + r;
                     for i in 0..w {
@@ -315,7 +319,8 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
                         }
                     }
                 }
-            });
+                });
+            }
         }
     }
 
@@ -325,15 +330,32 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
         Some(l) => GammaLut::with_tone(l.tone.as_ref()),
         None => GammaLut::with_curve(&s.tone_curve),
     };
-    par::chunks_mut(&mut out, band * w * 3, |b, chunk| {
-        let start = b * band * w * 3;
-        let src = &rgb[start..start + chunk.len()];
-        for (o, p) in chunk.as_chunks_mut::<3>().0.iter_mut().zip(src.as_chunks::<3>().0) {
-            for k in 0..3 {
-                o[k] = lut.encode(out_m[k][0] * p[0] + out_m[k][1] * p[1] + out_m[k][2] * p[2]);
+    if monochrome {
+        // The same calibrated luminance goes to R, G and B; this preserves
+        // neutral gray regardless of any unrelated camera colour matrix.
+        par::chunks_mut(&mut out, band * w * 3, |b, chunk| {
+            for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
+                let y = c.y + b * band + r;
+                let gains = gain_row(s, y, c.x, w, 0);
+                for (x, pixel) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+                    let v = sc.value(c.x + x, y, 0).clamp(0.0, 1.0);
+                    let g = gains.as_ref().and_then(|values| values.get(x)).copied().unwrap_or(1.0);
+                    let grey = lut.encode((v * g).clamp(0.0, 1.0) * gain as f32);
+                    pixel.fill(grey);
+                }
             }
-        }
-    });
+        });
+    } else {
+        par::chunks_mut(&mut out, band * w * 3, |b, chunk| {
+            let start = b * band * w * 3;
+            let src = &rgb[start..start + chunk.len()];
+            for (o, p) in chunk.as_chunks_mut::<3>().0.iter_mut().zip(src.as_chunks::<3>().0) {
+                for k in 0..3 {
+                    o[k] = lut.encode(out_m[k][0] * p[0] + out_m[k][1] * p[1] + out_m[k][2] * p[2]);
+                }
+            }
+        });
+    }
     rgb.clear();
     rgb.shrink_to_fit();
 

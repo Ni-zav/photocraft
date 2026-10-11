@@ -22,6 +22,22 @@ fn dng_opens_as_16_bit_prophoto() {
     assert!(r.warnings.iter().any(|w| w.contains("DNG") && w.contains("ProPhoto")), "{:?}", r.warnings);
 }
 
+
+#[test]
+fn monochrome_linearraw_dng_opens_as_16_bit_image() {
+    let (w, h) = (32, 16);
+    let mut spec = DngSpec::cfa(w, h, (0..w * h).map(|i| 2000 + (i % w) as u16 * 1500).collect());
+    spec.monochrome_linear_raw = true;
+    let r = import("negative.dng", &spec.build()).unwrap();
+    let d = &r.document;
+    assert_eq!((d.size.width, d.size.height), (w as u32, h as u32));
+    assert_eq!(d.mode, ColorMode::Rgb);
+    assert_eq!(d.depth, SampleType::U16);
+    assert_eq!(d.layers.len(), 1);
+    assert!(r.warnings.iter().any(|w| w.contains("DNG") && w.contains("ProPhoto")));
+    assert!(!r.warnings.iter().any(|w| w.contains("colour matrix")));
+}
+
 #[test]
 fn cr2_opens() {
     let (w, h) = (48, 16);
