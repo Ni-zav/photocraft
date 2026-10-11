@@ -283,6 +283,7 @@ mod tests {
         let mut session = photocraft_engine::Session::new();
         session.execute("file.new", json!({"width": 32, "height": 32})).unwrap();
         session.execute("layer.new.layer", json!({})).unwrap();
+        session.execute("paint.stroke", json!({"points": [[6, 8]], "size": 5})).unwrap();
         let mut app = crate::PhotocraftApp::new(session, Default::default());
         let layer = app.session.active().unwrap().active_layer.unwrap();
         let l = app.session.active().unwrap().doc.layer(layer).unwrap();
