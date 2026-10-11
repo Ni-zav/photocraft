@@ -337,6 +337,24 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
         fields.insert(p.key, v);
     }
     restore_remembered(app, command, spec.params, &mut fields);
+    // These settings belong to the active document, not to the last dialog invocation.
+    // An unchanged OK must never overwrite the document with schema/prefs defaults.
+    if let Some(st) = app.session.active() {
+        match command {
+            "layer.layerStyle.globalLight" => {
+                fields.insert("angle".into(), json!(st.doc.global_light.angle));
+                fields.insert("altitude".into(), json!(st.doc.global_light.altitude));
+            }
+            "view.proofSetup" => {
+                let proof = app.session.color.proof(st.doc.id).setup;
+                fields.insert("profile".into(), json!(proof.name));
+                fields.insert("intent".into(), json!(proof.intent.id()));
+                fields.insert("bpc".into(), json!(proof.bpc));
+                fields.insert("simulatePaper".into(), json!(proof.simulate_paper));
+            }
+            _ => {}
+        }
+    }
     if command == "image.rotation.arbitrary" {
         straighten_defaults(app, &mut fields);
     }
@@ -683,6 +701,42 @@ pub struct FilterPreviewKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_light_dialog_opens_with_current_document_light() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.session.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        app.session.execute("layer.layerStyle.globalLight", json!({"angle": 30, "altitude": 45})).unwrap();
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("layer.layerStyle.globalLight".into(), json!({"angle": 80.0, "altitude": 20.0}));
+        });
+        open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(params_of(fields)["angle"], json!(30.0));
+        assert_eq!(params_of(fields)["altitude"], json!(45.0));
+    }
+
+    #[test]
+    fn custom_proof_setup_dialog_opens_with_current_document_profile() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.session.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        app.session
+            .execute("view.proofSetup", json!({"profile": "srgb", "intent": "perceptual", "bpc": false, "simulatePaper": true}))
+            .unwrap();
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert(
+                "view.proofSetup".into(),
+                json!({"profile": "working-cmyk", "intent": "relative", "bpc": true, "simulatePaper": false}),
+            );
+        });
+        open(&mut app, "view.proofSetup").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        let params = params_of(fields);
+        assert_eq!(params["profile"], json!("srgb"));
+        assert_eq!(params["intent"], json!("perceptual"));
+        assert_eq!(params["bpc"], json!(false));
+        assert_eq!(params["simulatePaper"], json!(true));
+    }
 
     #[test]
     fn restores_only_valid_previous_filter_choices() {
