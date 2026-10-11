@@ -56,6 +56,13 @@ pub fn entries(l: &Layer, multi: bool, has_selection: bool) -> Vec<Entry> {
     v.push(None);
     v.push(Some((if multi { tl!("Duplicate Layers…") } else { tl!("Duplicate Layer…") }, "layer.duplicate")));
     v.push(Some((if multi { tl!("Delete Layers") } else { tl!("Delete Layer") }, "layer.delete")));
+    // A single layer's Flip commands are also available here, without first opening a
+    // Free Transform box or navigating Edit > Transform (#2959).
+    if !multi {
+        v.push(None);
+        v.push(Some((tl!("Flip Horizontal"), "edit.transform.flipHorizontal")));
+        v.push(Some((tl!("Flip Vertical"), "edit.transform.flipVertical")));
+    }
     if !multi {
         v.push(Some((tl!("Group from Layers…"), "layer.groupLayers")));
     }
@@ -269,6 +276,29 @@ mod color_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn selected_layer_context_menu_offers_flip_without_entering_free_transform() {
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 32, "height": 32})).unwrap();
+        session.execute("layer.new.layer", json!({})).unwrap();
+        let mut app = crate::PhotocraftApp::new(session, Default::default());
+        let layer = app.session.active().unwrap().active_layer.unwrap();
+        let l = app.session.active().unwrap().doc.layer(layer).unwrap();
+        for (label, command) in [
+            ("Flip Horizontal", "edit.transform.flipHorizontal"),
+            ("Flip Vertical", "edit.transform.flipVertical"),
+        ] {
+            assert!(entries(l, false, false).into_iter().flatten().any(|x| x.0 == label && x.1 == command));
+        }
+        assert!(entries(l, true, false).into_iter().flatten().all(|x| !x.1.starts_with("edit.transform.flip")));
+        let before = app.session.active().unwrap().history.past_len();
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.flipHorizontal", Value::Null).unwrap();
+        assert_eq!(app.session.active().unwrap().history.past_len(), before + 1);
+        assert!(app.ui.transform.is_none(), "flip works without an active transform box");
+    }
 
     #[test]
     fn mask_toggle_label_follows_history_and_selected_layer() {
