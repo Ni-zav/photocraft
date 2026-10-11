@@ -405,25 +405,16 @@ fn main() -> eframe::Result {
                 photocraft_ui_egui::gpu_status::queue_fallback_notice(&mut app, &reason);
             }
             app.perf.span("gpuSentinel", sentinel_ms);
-            // Once the first frames rendered: clear the marker, and keep a crash fallback.
-            let remember_cpu =
-                std::env::var_os("PHOTOCRAFT_GPU_STARTUP_FAILURE").is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
-            let remember = plan.remember.then_some(plan.backend);
+            // A temporary CPU fallback must not change the next-launch preference
+            // before the user chooses "Keep Using CPU" in the recovery dialog.
+            let remember_plan = plan.clone();
             app.on_started(move |app| {
                 if let Some(s) = started_sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
                     s.finish();
                 }
-                if remember_cpu
-                    && let Err(error) = app.run(
-                        "prefs.set",
-                        serde_json::json!({"values": {
-                            "performance.renderingMode": "cpu", "performance.useGpu": false
-                        }}),
-                    )
-                {
-                    log::warn!("couldn't remember CPU recovery: {error}");
-                }
-                if let Some(b) = remember
+                // Only persist a fallback GPU backend if that backend really produced
+                // a working GPU canvas. Failed GL startup must not pin the next launch.
+                if let Some(b) = gpu_startup::backend_to_remember(&remember_plan, app.perf.gpu_info.canvas == "gpu")
                     && app.session.prefs().performance.gpu_backend != b
                     && let Err(e) = app.run("prefs.set", serde_json::json!({"path": "performance.gpuBackend", "value": b.name()}))
                 {

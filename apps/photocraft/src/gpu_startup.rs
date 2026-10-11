@@ -177,6 +177,13 @@ pub fn plan_with_mode(pref: GpuBackend, mode: RenderingMode, crashed: Option<&Ma
     plan(backend, crashed, env, safe_gpu, os)
 }
 
+/// Retain an automatic backend fallback only after it successfully rendered on
+/// the GPU. CPU recovery remains temporary until the user explicitly confirms
+/// it in the recovery dialog (which saves the preference itself).
+pub fn backend_to_remember(plan: &Plan, gpu_canvas_active: bool) -> Option<GpuBackend> {
+    (plan.remember && gpu_canvas_active && plan.backend != GpuBackend::Cpu).then_some(plan.backend)
+}
+
 /// Instance backends for `plan` (`None`: egui's default, which honours `WGPU_BACKEND`).
 pub fn backends(plan: &Plan, os: Os) -> Option<wgpu::Backends> {
     if plan.env.is_some() {
@@ -489,6 +496,27 @@ mod tests {
         assert_eq!(plan(Metal, None, None, false, Os::Windows).backend, Auto);
         assert_eq!(plan(Dx12, None, None, false, Os::Mac).backend, Auto);
         assert_eq!(plan(Dx12, None, None, false, Os::Other).backend, Auto);
+    }
+
+    #[test]
+    fn cpu_recovery_requires_a_user_choice_to_be_remembered() {
+        // A failed Vulkan/GL start may select CPU as a temporary recovery on
+        // any platform; that must never silently become the next-launch mode.
+        for os in [Os::Other, Os::Windows, Os::Mac] {
+            let recovered = plan(Auto, Some(&crashed("gl", "gl")), None, false, os);
+            if recovered.backend == Cpu {
+                assert!(recovered.remember);
+                assert_eq!(backend_to_remember(&recovered, false), None);
+                assert_eq!(backend_to_remember(&recovered, true), None);
+            }
+        }
+
+        let gl = plan(Auto, Some(&crashed("auto", "vulkan")), None, false, Os::Other);
+        assert_eq!(gl.backend, Gl);
+        assert_eq!(backend_to_remember(&gl, false), None, "GL that cannot render must not be saved");
+        assert_eq!(backend_to_remember(&gl, true), Some(Gl), "a working GPU fallback can be saved");
+        assert_eq!(backend_to_remember(&plan(Auto, None, None, false, Os::Other), true), None);
+        assert_eq!(backend_to_remember(&plan(Auto, None, None, true, Os::Other), false), None);
     }
 
     #[test]
