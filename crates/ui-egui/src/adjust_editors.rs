@@ -1179,9 +1179,12 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             e.add(Edit::discrete(true));
         }
     });
-    // The gradient.
+    // A draggable colour-stop strip, like the Gradient tool's editor. During the drag the
+    // host previews the new value; on release it records one adjustment history entry.
     let w = ui.available_width().min(300.0);
-    let (r, _) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
+    let (r, response) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click_and_drag());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Gradient Map stops")));
+    let bar = Rect::from_min_max(pos2(r.left() + 8.0, r.top() + 2.0), pos2(r.right() - 8.0, r.top() + 24.0));
     let reverse = flag(v, "reverse", false);
     let cols: Vec<Color32> = (0..=48)
         .map(|i| {
@@ -1189,8 +1192,46 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             color32(sample_stops(&stops, if reverse { 1.0 - x } else { x }))
         })
         .collect();
-    spectrum_bar(ui.painter(), r, &cols);
-    ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
+    spectrum_bar(ui.painter(), bar, &cols);
+    ui.painter().rect_stroke(bar, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
+    let x_at = |at: f32| bar.left() + at.clamp(0.0, 1.0) * bar.width();
+    let marker_y = bar.bottom() + 8.0;
+    for (at, rgb) in &stops {
+        let center = pos2(x_at(*at), marker_y);
+        ui.painter().circle_filled(center, 5.5, color32(*rgb));
+        ui.painter().circle_stroke(center, 5.5, Stroke::new(1.0, t.text));
+    }
+    let dragging = cx.mem.with("gradient-map-stop-drag");
+    if response.drag_started() {
+        let picked = response.interact_pointer_pos().and_then(|pos| {
+            stops.iter().enumerate()
+                .filter(|(_, s)| (pos.x - x_at(s.0)).abs() <= 11.0 && (pos.y - marker_y).abs() <= 12.0)
+                .min_by(|(_, a), (_, b)| (pos.x - x_at(a.0)).abs().total_cmp(&(pos.x - x_at(b.0)).abs()))
+                .map(|(i, _)| i)
+        });
+        if let Some(i) = picked {
+            ui.data_mut(|d| d.insert_temp(dragging, i));
+        }
+    }
+    if response.dragged()
+        && let Some(index) = ui.data(|d| d.get_temp::<usize>(dragging))
+        && let Some(pos) = response.interact_pointer_pos()
+        && index < stops.len()
+    {
+        // Keep the marker's index stable when dragged across another stop; it is only sorted
+        // when the edit is written, so a marker never jumps to a different colour mid-drag.
+        let lo = if index == 0 { 0.0 } else { stops[index - 1].0 + 0.001 };
+        let hi = if index + 1 == stops.len() { 1.0 } else { stops[index + 1].0 - 0.001 };
+        let at = ((pos.x - bar.left()) / bar.width().max(1.0)).clamp(lo.min(hi), hi.max(lo));
+        if (stops[index].0 - at).abs() >= 0.001 {
+            stops[index].0 = at;
+            write_stops(v, &stops);
+            e.changed = true;
+        }
+    }
+    if response.drag_stopped() && ui.data_mut(|d| d.remove::<usize>(dragging)).is_some() {
+        e.commit = true;
+    }
     ui.add_space(4.0);
     // Stops: colour, location, remove.
     let mut remove = None;

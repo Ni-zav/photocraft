@@ -432,3 +432,20 @@ fn gradient_map_picker_offers_the_gradient_library() {
         assert_eq!(steps(&h), before + 1, "{name}: one history step");
     }
 }
+
+#[test]
+fn gradient_map_stop_handle_drag_moves_colour_stop_and_commits_once() {
+    let mut h = app_harness("gradientMap", "rgb", 8);
+    h.get_by_label("Add Stop").click();
+    h.run_steps(3);
+    let before = layer(&h).1;
+    let steps = h.state().session.active().unwrap().history.past_len();
+    let rect = h.get_by_label("Gradient Map stops").rect();
+    let x = |at: f32| rect.left() + 8.0 + at * (rect.width() - 16.0);
+    let y = rect.top() + 32.0;
+    drag(&mut h, Pos2::new(x(0.5), y), Pos2::new(x(0.70), y));
+    let after = layer(&h).1;
+    assert_ne!(after, before, "dragging the middle colour stop updates the Gradient Map");
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 1, "one undoable edit per drag");
+    assert!(h.state().live_adjust.is_none(), "the preview ends when the drag stops");
+}
