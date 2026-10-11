@@ -29,6 +29,14 @@ pub fn sync_tool_brush(app: &mut PhotocraftApp) {
     // edit it made since it was last active is in it, so its copy never goes stale.
     let current = app.session.tools.brush.clone();
     save_brush(app, app.ui.brush_tool, current.clone());
+    // A brush preset's name is part of the tool's own brush selection, not the tool we
+    // happen to switch to. Keep it alongside the per-tool brush settings.
+    app.ui.tool_brush_presets.retain(|(t, _)| *t != app.ui.brush_tool);
+    if let Some(name) = &app.session.tools.current_preset
+        && app.session.tools.presets.iter().any(|p| p.name.eq_ignore_ascii_case(name))
+    {
+        app.ui.tool_brush_presets.push((app.ui.brush_tool, name.clone()));
+    }
     app.session.tools.brush = match app.ui.tool_brushes.iter().find(|(t, _)| *t == tool) {
         Some((_, b)) => session_fields(&current, b),
         // A tool seen for the first time takes what the brush has, at Photoshop's smoothing.
@@ -36,7 +44,9 @@ pub fn sync_tool_brush(app: &mut PhotocraftApp) {
     };
     // The picked preset was the outgoing tool's brush: forget it, so Update Brush can't overwrite
     // that preset with this tool's brush.
-    app.session.tools.current_preset = None;
+    app.session.tools.current_preset = app.ui.tool_brush_presets.iter().find(|(t, _)| *t == tool)
+        .map(|(_, name)| name.clone())
+        .filter(|name| app.session.tools.presets.iter().any(|p| p.name.eq_ignore_ascii_case(name)));
     app.ui.brush_tool = tool;
 }
 
@@ -548,6 +558,36 @@ mod tests {
         tool_event(&mut app, ToolEvent::Down { x: 5.0, y: 5.0, pressure: 1.0 }, Modifiers::NONE);
         assert_eq!(amount(&app), 0.0);
         tool_event(&mut app, ToolEvent::Up { x: 30.0, y: 5.0 }, Modifiers::NONE);
+    }
+
+
+    #[test]
+    fn each_tool_restores_its_preset_identity_without_inheriting_anothers() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let names: Vec<String> = app.session.tools.presets.iter().take(2).map(|p| p.name.clone()).collect();
+        assert_eq!(names.len(), 2, "two stock brush presets are available");
+
+        app.ui.tool = Tool::Brush;
+        sync_tool_brush(&mut app);
+        app.run("brush.presets.setCurrent", json!({"name": names[0]})).unwrap();
+        app.ui.tool = Tool::Eraser;
+        sync_tool_brush(&mut app);
+        assert!(app.session.tools.current_preset.is_none(), "new Eraser does not inherit Brush's preset");
+        app.run("brush.presets.setCurrent", json!({"name": names[1]})).unwrap();
+
+        app.ui.tool = Tool::Brush;
+        sync_tool_brush(&mut app);
+        assert_eq!(app.session.tools.current_preset.as_ref(), Some(&names[0]));
+        app.ui.tool = Tool::Eraser;
+        sync_tool_brush(&mut app);
+        assert_eq!(app.session.tools.current_preset.as_ref(), Some(&names[1]));
+
+        // Removed presets are never resurrected from stale UI history.
+        let removed = names[0].clone();
+        app.run("brush.presets.delete", json!({"name": removed})).unwrap();
+        app.ui.tool = Tool::Brush;
+        sync_tool_brush(&mut app);
+        assert!(app.session.tools.current_preset.is_none());
     }
 
     /// #218: Photoshop keeps a brush per painting tool, so the size, hardness, mode, opacity and

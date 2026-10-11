@@ -1031,6 +1031,10 @@ pub struct UiState {
     pub brush_tool: Tool,
     #[serde(default)]
     pub tool_brushes: Vec<(Tool, photocraft_engine::paint::BrushSettings)>,
+    /// The named preset last picked for each painting tool. A brush and its source preset
+    /// stay associated when switching to another tool and back.
+    #[serde(default)]
+    pub tool_brush_presets: Vec<(Tool, String)>,
     /// Pen path under construction.
     #[serde(default)]
     pub pen: Option<crate::vector_ui::PenPath>,
@@ -1187,6 +1191,7 @@ impl Default for UiState {
             canvas_tool_menu: None,
             brush_tool: Tool::Brush,
             tool_brushes: Vec::new(),
+            tool_brush_presets: Vec::new(),
             clone_source: None,
             clone_offset: None,
             pattern_stamp_phase: None,
