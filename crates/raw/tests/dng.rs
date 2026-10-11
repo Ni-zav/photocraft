@@ -71,7 +71,6 @@ fn linear_raw_decodes_and_develops() {
     assert!(d.info.cfa.is_none());
 }
 
-
 #[test]
 fn monochrome_linearraw_develops_to_neutral_rgb_without_demosaic() {
     let (w, h) = (32, 16);

@@ -206,7 +206,7 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
     // Balanced camera → XYZ D50: a look fitted to the camera's JPEG, the file's calibration,
     // or the neutral fallback.
     let look = if monochrome { None } else { opts.camera_look.as_ref().filter(|l| l.is_usable()) };
-    if opts.camera_look.is_some() && look.is_none() {
+    if !monochrome && opts.camera_look.is_some() && look.is_none() {
         warnings.push("the supplied camera look is not usable (non-finite or singular); ignored".into());
     }
     let to_xyz: Mat3 = match (look, s.color.balanced_to_xyz_d50(neutral)) {
@@ -304,21 +304,21 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
             rgb = if monochrome { Vec::new() } else { vec![0.0f32; w * h * 3] };
             if !monochrome {
                 par::chunks_mut(&mut rgb, band * w * 3, |b, chunk| {
-                for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
-                    let y = c.y + b * band + r;
-                    for i in 0..w {
-                        for k in 0..3 {
-                            row[i * 3 + k] = (sc.value(c.x + i, y, k) * mult[k]).clamp(0.0, 1.0);
+                    for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
+                        let y = c.y + b * band + r;
+                        for i in 0..w {
+                            for k in 0..3 {
+                                row[i * 3 + k] = (sc.value(c.x + i, y, k) * mult[k]).clamp(0.0, 1.0);
+                            }
                         }
-                    }
-                    for k in 0..3 {
-                        if let Some(g) = gain_row(s, y, c.x, w, k) {
-                            for (i, g) in g.into_iter().enumerate() {
-                                row[i * 3 + k] = (row[i * 3 + k] * g).clamp(0.0, 1.0);
+                        for k in 0..3 {
+                            if let Some(g) = gain_row(s, y, c.x, w, k) {
+                                for (i, g) in g.into_iter().enumerate() {
+                                    row[i * 3 + k] = (row[i * 3 + k] * g).clamp(0.0, 1.0);
+                                }
                             }
                         }
                     }
-                }
                 });
             }
         }

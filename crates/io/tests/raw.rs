@@ -22,7 +22,6 @@ fn dng_opens_as_16_bit_prophoto() {
     assert!(r.warnings.iter().any(|w| w.contains("DNG") && w.contains("ProPhoto")), "{:?}", r.warnings);
 }
 
-
 #[test]
 fn monochrome_linearraw_dng_opens_as_16_bit_image() {
     let (w, h) = (32, 16);
