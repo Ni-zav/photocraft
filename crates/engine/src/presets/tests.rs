@@ -587,6 +587,40 @@ fn clone_source_flip_scale_rotation() {
 }
 
 #[test]
+fn clone_source_linked_width_height_follow_the_selected_slot() {
+    let mut s = session(8);
+    let v = s.execute("cloneSource.set", json!({"index": 1, "width": 200})).unwrap();
+    assert_eq!(v["linked"], json!(true));
+    assert_eq!(v["height"], json!(200.0));
+    let v = s.execute("cloneSource.set", json!({"height": 150})).unwrap();
+    assert_eq!(v["width"], json!(150.0));
+    // Unlinking affects only the selected source slot.
+    let v = s.execute("cloneSource.set", json!({"linked": false, "width": 75})).unwrap();
+    assert_eq!(v["width"], json!(75.0));
+    assert_eq!(v["height"], json!(150.0));
+    let v = s.execute("cloneSource.set", json!({"linked": true, "height": 300})).unwrap();
+    assert_eq!(v["width"], json!(150.0));
+    // Explicit pairs preserve the caller's choice, even when the chain is linked.
+    let v = s.execute("cloneSource.set", json!({"scale": [80, 100]})).unwrap();
+    assert_eq!(v["width"], json!(80.0));
+    assert_eq!(v["height"], json!(100.0));
+    let v = s.execute("cloneSource.set", json!({"width": 400})).unwrap();
+    assert_eq!(v["height"], json!(500.0));
+    // Linked updates still respect the same maximum as ordinary width/height edits.
+    let v = s.execute("cloneSource.set", json!({"width": 1000})).unwrap();
+    assert_eq!(v["height"], json!(1000.0));
+    let slots = s.execute("cloneSource.list", json!({})).unwrap();
+    assert_eq!(slots["sources"][0]["width"], json!(100.0));
+    assert_eq!(slots["sources"][0]["linked"], json!(true));
+    assert_eq!(slots["sources"][1]["linked"], json!(true));
+    // Older saved slot objects without a linked field get the default on state.
+    let mut old = serde_json::to_value(super::clone_source::CloneSource::default()).unwrap();
+    old.as_object_mut().unwrap().remove("linked");
+    let decoded: super::clone_source::CloneSource = serde_json::from_value(old).unwrap();
+    assert!(decoded.linked);
+}
+
+#[test]
 fn clone_source_errors_and_overlay() {
     let mut s = clone_doc(8);
     assert!(s.execute("paint.cloneStamp", json!({"points": [[4, 4]]})).is_err());

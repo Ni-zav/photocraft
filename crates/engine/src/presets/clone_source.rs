@@ -29,15 +29,22 @@ pub struct CloneSource {
     pub layer: Option<u64>,
     /// W and H in percent.
     pub scale: [f64; 2],
+    /// Preserve the width/height ratio when only one percentage is edited.
+    #[serde(default = "linked_default")]
+    pub linked: bool,
     /// Degrees, counter-clockwise.
     pub rotation: f64,
     pub flip_h: bool,
     pub flip_v: bool,
 }
 
+fn linked_default() -> bool {
+    true
+}
+
 impl Default for CloneSource {
     fn default() -> Self {
-        CloneSource { source: None, anchor: None, layer: None, scale: [100.0, 100.0], rotation: 0.0, flip_h: false, flip_v: false }
+        CloneSource { source: None, anchor: None, layer: None, scale: [100.0, 100.0], linked: true, rotation: 0.0, flip_h: false, flip_v: false }
     }
 }
 
@@ -56,7 +63,7 @@ impl CloneSource {
     fn to_json(&self, i: usize) -> Value {
         json!({
             "index": i, "source": self.source, "anchor": self.anchor, "offset": self.offset(), "layer": self.layer,
-            "width": self.scale[0], "height": self.scale[1], "rotation": self.rotation, "flipH": self.flip_h, "flipV": self.flip_v,
+            "width": self.scale[0], "height": self.scale[1], "linked": self.linked, "rotation": self.rotation, "flipH": self.flip_h, "flipV": self.flip_v,
         })
     }
 }
@@ -289,15 +296,30 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
         slot.anchor = Some(a);
         slot.source = Some([a[0] + dx, a[1] + dy]);
     }
-    if let Some(a) = p.get("scale").and_then(Value::as_array) {
+    if let Some(linked) = p.get("linked").and_then(Value::as_bool) {
+        slot.linked = linked;
+    }
+    let explicit_scale = p.get("scale").and_then(Value::as_array);
+    if let Some(a) = explicit_scale {
         slot.scale = [a.first().and_then(Value::as_f64).unwrap_or(100.0), a.get(1).and_then(Value::as_f64).unwrap_or(100.0)];
     }
     let num = |k: &str| p.get(k).and_then(Value::as_f64);
-    if let Some(w) = num("width") {
+    let (width, height) = (num("width"), num("height"));
+    let previous = slot.scale;
+    if let Some(w) = width {
         slot.scale[0] = w;
     }
-    if let Some(h) = num("height") {
+    if let Some(h) = height {
         slot.scale[1] = h;
+    }
+    // An explicit pair sets both dimensions independently. A single edit with the
+    // chain linked scales the other dimension by the same factor.
+    if slot.linked && explicit_scale.is_none() {
+        match (width, height) {
+            (Some(w), None) if previous[0].abs() >= 1.0 => slot.scale[1] = previous[1] * (w / previous[0]),
+            (None, Some(h)) if previous[1].abs() >= 1.0 => slot.scale[0] = previous[0] * (h / previous[1]),
+            _ => {}
+        }
     }
     if slot.scale.iter().any(|v| !(1.0..=1000.0).contains(&v.abs())) {
         slot.scale = slot.scale.map(|v| v.clamp(1.0, 1000.0));
@@ -361,7 +383,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Clone Sources",
             menu: &[],
             shortcut: None,
-            params: "{} → {active,sources:[{index,source,anchor,offset,layer,width,height,rotation,flipH,flipV}],overlay}",
+            params: "{} → {active,sources:[{index,source,anchor,offset,layer,width,height,linked,rotation,flipH,flipV}],overlay}",
             enabled: always,
             run: list,
             journal: false,
@@ -381,7 +403,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Set Clone Source",
             menu: &[],
             shortcut: None,
-            params: r##"{"index":0..4?=active,"source":[x,y]? (⌥-click; re-pairs with the next stroke),"offset":[dx,dy]?,"width":%?,"height":%?|"scale":[w%,h%]?,"rotation":deg?,"flipH":bool?,"flipV":bool?,"layer":id?,"clear":bool?,"select":bool=true}"##,
+            params: r##"{"index":0..4?=active,"source":[x,y]? (⌥-click; re-pairs with the next stroke),"offset":[dx,dy]?,"width":%?,"height":%?|"scale":[w%,h%]?,"linked":bool?,"rotation":deg?,"flipH":bool?,"flipV":bool?,"layer":id?,"clear":bool?,"select":bool=true}"##,
             enabled: always,
             run: set,
             journal: true,
