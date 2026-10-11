@@ -907,6 +907,8 @@ pub struct MenuCustomization {
 pub struct ToolbarCustomization {
     pub hidden: Vec<String>,
     pub order: Vec<String>,
+    /// Flyout slot index to the last tool selected in that slot; survives restarts.
+    pub last_used: BTreeMap<String, String>,
 }
 
 /// All preferences. JSON keys are the `edit.preferences.<section>` ids.

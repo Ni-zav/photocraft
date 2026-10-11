@@ -44,12 +44,15 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
 ];
 
 /// The tool a slot shows: the current tool if it belongs to the slot, else the last one used.
-fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id) -> Tool {
+fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id, remembered: Option<&str>) -> Tool {
     if slot.contains(&current) {
         ui.data_mut(|d| d.insert_temp(key, current));
         return current;
     }
-    ui.data(|d| d.get_temp::<Tool>(key)).filter(|t| slot.contains(t)).unwrap_or(slot[0])
+    ui.data(|d| d.get_temp::<Tool>(key))
+        .filter(|t| slot.contains(t))
+        .or_else(|| remembered.and_then(Tool::from_name).filter(|t| slot.contains(t)))
+        .unwrap_or(slot[0])
 }
 
 /// [`TOOL_SECTIONS`] without the tools hidden in Edit › Toolbar (`hidden` holds tool names: the
@@ -148,7 +151,16 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             ui.horizontal(|ui| {
                                 for (slot_index, slot) in row.iter() {
                                     let key = egui::Id::new(("tool-slot", *slot_index));
-                                    let tool = slot_tool(ui, app.ui.tool, slot, key);
+                                    let remembered = app.session.prefs().toolbar.last_used.get(&slot_index.to_string()).cloned();
+                                    let tool = slot_tool(ui, app.ui.tool, slot, key, remembered.as_deref());
+                                    if slot.len() > 1 && slot.contains(&app.ui.tool) {
+                                        let selected = format!("{:?}", app.ui.tool);
+                                        if remembered.as_deref() != Some(selected.as_str()) {
+                                            app.session.prefs.edit(|p| {
+                                                p.toolbar.last_used.insert(slot_index.to_string(), selected);
+                                            });
+                                        }
+                                    }
                                     let sel = slot.contains(&app.ui.tool);
                                     let tip =
                                         if tool.key() == '\0' { tl!(tool.label()).to_string() } else { format!("{}  ({})", tl!(tool.label()), tool.key()) };
@@ -4225,6 +4237,44 @@ mod type_flyout_tests {
         frame(&mut app, &ctx, 2.05, vec![pointer(row, false)]);
         assert_eq!(app.ui.tool, Tool::VerticalType);
         assert!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).is_none());
+    }
+
+
+    #[test]
+    fn toolbar_flyout_remembers_the_last_tool_after_preferences_reload() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let index = TOOL_SECTIONS.iter().flat_map(|section| section.iter())
+            .position(|slot| slot.contains(&Tool::PaintBucket)).unwrap();
+        let key = index.to_string();
+        app.ui.tool = Tool::PaintBucket;
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
+        frame(&mut app, &ctx, 0.0, vec![]);
+        frame(&mut app, &ctx, 0.1, vec![]);
+        assert_eq!(app.session.prefs().toolbar.last_used.get(&key).map(String::as_str), Some("PaintBucket"));
+
+        let json = app.session.prefs_to_json();
+        let mut session = photocraft_engine::Session::new();
+        session.load_prefs_json(&json).unwrap();
+        let next = PhotocraftApp::new(session, crate::Services::default());
+        let slot = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).nth(index).unwrap();
+        let fresh_ctx = egui::Context::default();
+        let mut shown = None;
+        let _ = fresh_ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                shown = Some(slot_tool(ui, Tool::Move, slot, egui::Id::new(("tool-slot", index)),
+                    next.session.prefs().toolbar.last_used.get(&key).map(String::as_str)));
+            });
+        });
+        assert_eq!(shown, Some(Tool::PaintBucket));
+        // Removed or malformed saved choices do not substitute a tool from another group.
+        let mut fallback = None;
+        let _ = fresh_ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                fallback = Some(slot_tool(ui, Tool::Move, slot, egui::Id::new("new-slot"), Some("PolygonLasso")));
+            });
+        });
+        assert_eq!(fallback, slot.first().copied());
     }
 
     #[test]
