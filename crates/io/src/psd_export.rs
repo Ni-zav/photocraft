@@ -1456,8 +1456,8 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     }
     let mut global_blocks = Vec::new();
     let preserved = ex.smart.finish(crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc)));
-    // The type layers' `Txt2` is regenerated (the auto-kern modes live there, and a preserved
-    // block goes stale as text is edited): one object per `TextIndex`, at the slot each layer's
+    // When needed, the type layers' `Txt2` is regenerated (optical auto-kern lives there,
+    // and a preserved block goes stale as text is edited): one object per `TextIndex`, at the slot each layer's
     // `TySh` names (unused slots stay empty; see `photocraft_text::psd::build_txt2`). The block
     // it replaces is handed over so a kept object keeps everything the file held beyond its text
     // and style runs (Photoshop's `/21 /1` glyph pen positions, …).
@@ -1470,7 +1470,16 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         })
         .collect();
     let previous = (!text_layers.is_empty()).then(|| preserved.iter().find(|(_, key, _)| key == b"Txt2").map(|(_, _, data)| data.to_vec())).flatten();
-    let txt2 = (!text_layers.is_empty()).then(|| photocraft_text::psd::build_txt2(&text_layers, previous.as_deref()));
+    // TySh already stores Metrics and manual kerning. A fresh document using only
+    // those modes does not need Txt2: building one creates an empty resources
+    // dictionary that Photopea cannot load (#3514). Retain and update original
+    // Txt2 blocks, and generate a new one only when Optical needs its mode stored.
+    let needs_txt2 = !text_layers.is_empty()
+        && (previous.is_some()
+            || text_layers.iter().any(|(_, layer)| {
+                layer.char_runs().iter().any(|run| run.style.kerning == photocraft_doc::text::Kerning::Optical)
+            }));
+    let txt2 = needs_txt2.then(|| photocraft_text::psd::build_txt2(&text_layers, previous.as_deref()));
     for (sig, key, data) in preserved {
         if txt2.is_some() && key == *b"Txt2" {
             continue;

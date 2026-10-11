@@ -79,6 +79,32 @@ fn manual_and_off_kerning_round_trip_through_psd() {
     assert!(f.iter().enumerate().filter(|(j, _)| ![1, 4, 8, 9, 10].contains(j)).all(|(_, x)| *x == (true, 0)), "{f:?}");
 }
 
+/// #3514: Photopea rejects the synthetic Txt2 resources stub a fresh document
+/// gets even when every type layer uses a mode that TySh represents itself.
+#[test]
+fn new_default_type_layers_do_not_emit_an_unneeded_txt2_stub() {
+    use Kerning::{Metrics as M, Off as O};
+    let mut doc = Document::new("type", photocraft_geom::Size::new(120, 60), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+    for (name, text, modes) in [
+        ("default", "PhotoCraft", vec![(10, M, 0.0)]),
+        ("manual", "AB", vec![(1, O, 70.0), (1, M, 0.0)]),
+    ] {
+        let mut type_layer = layer(text, &modes);
+        photocraft_text::TextEngine::new().render_layer(&mut type_layer, doc.resolution_dpi, doc.pixel_format());
+        doc.layers.push(Layer::new(name, LayerContent::Text(type_layer)));
+    }
+    let bytes = photocraft_io::export(&doc, "type.psd", &Default::default()).unwrap().bytes;
+    let file = photocraft_psd::PsdFile::from_bytes(&bytes).unwrap();
+    assert!(file.global_blocks.iter().all(|b| &b.key != b"Txt2"), "fresh Metrics/Off layers need no Txt2");
+    let imported = photocraft_io::import("type.psd", &bytes).unwrap().document;
+    assert_eq!(imported.layers.len(), 2);
+    for (want, got) in doc.layers.iter().zip(&imported.layers) {
+        let (LayerContent::Text(a), LayerContent::Text(b)) = (&want.content, &got.content) else { panic!("type layers must remain editable") };
+        assert_eq!(a.text, b.text);
+        assert_eq!(chars(a), chars(b));
+    }
+}
+
 /// #1348: the automatic mode (Metrics/Optical) lives in the document `Txt2` block, one model
 /// object per `TextIndex`. A PhotoCraft-authored PSD must carry it or a reopened layer falls
 /// back to Metrics — Optical used to be silently lost.
@@ -94,6 +120,8 @@ fn optical_kerning_round_trips_through_psd() {
         doc.layers.push(Layer::new(name, LayerContent::Text(t)));
     }
     let bytes = photocraft_io::export(&doc, "k.psd", &Default::default()).unwrap().bytes;
+    let file = photocraft_psd::PsdFile::from_bytes(&bytes).unwrap();
+    assert!(file.global_blocks.iter().any(|b| &b.key == b"Txt2"), "optical kerning still needs Txt2");
     let back = photocraft_io::import("k.psd", &bytes).unwrap().document;
     for (want, l) in [(&t1, &back.layers[0]), (&t2, &back.layers[1])] {
         let LayerContent::Text(b) = &l.content else { panic!("not text") };
