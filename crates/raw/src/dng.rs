@@ -138,7 +138,7 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     if is_cfa && samples != 1 {
         return Err(RawError::unsupported(format!("CFA data with {samples} samples per pixel")));
     }
-    if !is_cfa && samples != 3 {
+    if !is_cfa && samples != 1 && samples != 3 {
         return Err(RawError::unsupported(format!("LinearRaw data with {samples} samples per pixel")));
     }
     let active = rect_from(t, &raw, plane.width, plane.height);
@@ -242,7 +242,7 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     }
 
     let color = color_info(t, &ifd0);
-    if color.calibrations.is_empty() {
+    if color.calibrations.is_empty() && (is_cfa || samples == 3) {
         warnings.push("the DNG has no colour matrix; colours are approximate".to_string());
     }
     let baseline_exposure = t.tag_floats(&ifd0, tag::BASELINE_EXPOSURE).first().copied().unwrap_or(0.0)

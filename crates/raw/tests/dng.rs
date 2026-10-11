@@ -71,6 +71,39 @@ fn linear_raw_decodes_and_develops() {
     assert!(d.info.cfa.is_none());
 }
 
+
+#[test]
+fn monochrome_linear_raw_is_not_treated_as_cfa_or_three_channel_rgb() {
+    // The synthetic generator emits the same 1-sample plane with CFA
+    // photometric metadata by default. Switch the public TIFF tag to the
+    // valid DNG LinearRaw value, as a greyscale scanner would do.
+    let (w, h) = (8, 6);
+    let data: Vec<u16> = (0..w * h).map(|i| i as u16 * 600).collect();
+    for storage in [DngStorage::Strips { rows: 2 }, DngStorage::Lj92Tiles { width: 8, height: 8 }] {
+        let mut spec = DngSpec::cfa(w, h, data.clone());
+        spec.storage = storage;
+        let mut bytes = spec.build();
+        let cfa_tag = [0x06, 0x01, 0x03, 0, 1, 0, 0, 0, 0x23, 0x80, 0, 0];
+        let hits: Vec<usize> = bytes.windows(cfa_tag.len()).enumerate().filter_map(|(i, x)| (x == cfa_tag).then_some(i)).collect();
+        assert_eq!(hits.len(), 1, "one PhotometricInterpretation tag");
+        bytes[hits[0] + 8..hits[0] + 10].copy_from_slice(&34892u16.to_le_bytes());
+
+        let sensor = sensor(&bytes);
+        assert_eq!(sensor.samples, 1);
+        assert!(sensor.cfa.is_none());
+        assert_eq!(sensor.data, data);
+        let image = develop_sensor(&sensor, &DevelopOptions::default()).unwrap();
+        assert_eq!((image.width, image.height), (w as u32, h as u32));
+        assert_eq!(image.rgb.len(), w * h * 3);
+        for pixel in image.rgb.chunks_exact(3) {
+            assert_eq!(pixel[0], pixel[1]);
+            assert_eq!(pixel[1], pixel[2]);
+        }
+        assert!(image.rgb[0] < image.rgb[image.rgb.len() - 1]);
+        assert!(image.info.cfa.is_none());
+    }
+}
+
 /// `spec`'s file with its Orientation entry (a SHORT `from`) rewritten as a LONG `to`.
 fn with_long_orientation(spec: &DngSpec, from: u16, to: u32) -> Vec<u8> {
     let mut b = spec.build();

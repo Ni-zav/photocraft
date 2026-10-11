@@ -190,6 +190,9 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
     if s.samples != 1 && s.samples != 3 {
         return Err(RawError::unsupported(format!("{} samples per pixel", s.samples)));
     }
+    // A one-sample LinearRaw image has no CFA pattern and needs no demosaic or
+    // camera colour/white-balance conversion. Preserve its neutral greys.
+    let monochrome = s.samples == 1 && s.cfa.is_none();
     // Working buffers: one f32 plane plus f32 RGB plus u16 RGB per pixel, and
     // a green plane for non-Bayer patterns.
     let bayer = s.cfa.as_ref().is_none_or(|cfa| cfa.is_bayer());
@@ -197,16 +200,21 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
     let mut warnings = s.warnings.clone();
     let sc = Scale::new(s);
 
-    let neutral = resolve_neutral(s, opts, &sc, &mut warnings)?;
+    let neutral = if monochrome { [1.0; 3] } else { resolve_neutral(s, opts, &sc, &mut warnings)? };
     let mult = neutral.map(|v| (1.0 / v) as f32);
 
     // Balanced camera → XYZ D50: a look fitted to the camera's JPEG, the file's calibration,
     // or the neutral fallback.
-    let look = opts.camera_look.as_ref().filter(|l| l.is_usable());
-    if opts.camera_look.is_some() && look.is_none() {
+    let look = if monochrome { None } else { opts.camera_look.as_ref().filter(|l| l.is_usable()) };
+    if monochrome && opts.camera_look.is_some() {
+        warnings.push("camera look is not applied to monochrome LinearRaw".into());
+    } else if opts.camera_look.is_some() && look.is_none() {
         warnings.push("the supplied camera look is not usable (non-finite or singular); ignored".into());
     }
-    let to_xyz: Mat3 = match (look, s.color.balanced_to_xyz_d50(neutral)) {
+    let to_xyz: Mat3 = if monochrome {
+        color::srgb_to_xyz_d50()
+    } else {
+        match (look, s.color.balanced_to_xyz_d50(neutral)) {
         (Some(l), _) => {
             warnings.push(l.note());
             l.to_xyz
@@ -217,6 +225,7 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
                 warnings.push("no colour calibration for this camera; camera colours are treated as sRGB primaries".into());
             }
             color::srgb_to_xyz_d50()
+        }
         }
     };
     let gain = 2f64.powf(s.baseline_exposure + opts.exposure.clamp(-10.0, 10.0));
@@ -304,11 +313,12 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
                     let y = c.y + b * band + r;
                     for i in 0..w {
                         for k in 0..3 {
-                            row[i * 3 + k] = (sc.value(c.x + i, y, k) * mult[k]).clamp(0.0, 1.0);
+                            let sample = if monochrome { 0 } else { k };
+                            row[i * 3 + k] = (sc.value(c.x + i, y, sample) * mult[k]).clamp(0.0, 1.0);
                         }
                     }
                     for k in 0..3 {
-                        if let Some(g) = gain_row(s, y, c.x, w, k) {
+                        if let Some(g) = gain_row(s, y, c.x, w, if monochrome { 0 } else { k }) {
                             for (i, g) in g.into_iter().enumerate() {
                                 row[i * 3 + k] = (row[i * 3 + k] * g).clamp(0.0, 1.0);
                             }
@@ -329,8 +339,12 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
         let start = b * band * w * 3;
         let src = &rgb[start..start + chunk.len()];
         for (o, p) in chunk.as_chunks_mut::<3>().0.iter_mut().zip(src.as_chunks::<3>().0) {
-            for k in 0..3 {
-                o[k] = lut.encode(out_m[k][0] * p[0] + out_m[k][1] * p[1] + out_m[k][2] * p[2]);
+            if monochrome {
+                o.fill(lut.encode(gain as f32 * p[0]));
+            } else {
+                for k in 0..3 {
+                    o[k] = lut.encode(out_m[k][0] * p[0] + out_m[k][1] * p[1] + out_m[k][2] * p[2]);
+                }
             }
         }
     });
