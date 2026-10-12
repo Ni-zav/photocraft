@@ -148,12 +148,13 @@ pub fn middle_drag(view: &mut View, xf: &ViewXform, pointer: Pos2, delta_x: f32)
     if !pointer.x.is_finite() || !pointer.y.is_finite() || !delta_x.is_finite() || delta_x == 0.0 {
         return false;
     }
-    let before = xf.to_doc(pointer);
+    let current = ViewXform { center: view.center, rotation: view.rotation, ..*xf };
+    let before = current.to_doc(pointer);
     let rotation = wrap_deg(view.rotation + delta_x * 0.35);
     if rotation == view.rotation {
         return false;
     }
-    let after = ViewXform { rotation, ..*xf }.to_doc(pointer);
+    let after = ViewXform { rotation, ..current }.to_doc(pointer);
     if !before.into_iter().chain(after).all(f64::is_finite) {
         return false;
     }
