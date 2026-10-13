@@ -210,6 +210,22 @@ mod tests {
     }
 
     #[test]
+    fn preserved_duotone_psd_data_is_shared_and_stays_serializable() {
+        use std::sync::Arc;
+        let bytes: Vec<u8> = (0..8192).map(|i| (i & 255) as u8).collect();
+        let tone = Duotone { inks: vec![DuotoneInk::new("Black", [0.0; 3])], psd_raw: Some(Arc::new(bytes.clone())) };
+        let cloned = tone.clone();
+        assert!(Arc::ptr_eq(tone.psd_raw.as_ref().unwrap(), cloned.psd_raw.as_ref().unwrap()));
+        assert_eq!(tone.psd_raw.as_ref().unwrap().as_slice(), &bytes);
+        // The saved document format is unchanged: an ordinary byte array rather than
+        // an Arc-specific wrapper or an additional reference object.
+        let encoded = serde_json::to_value(&tone).unwrap();
+        assert_eq!(encoded["psd_raw"], serde_json::json!(bytes));
+        let decoded: Duotone = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, tone);
+    }
+
+    #[test]
     fn stack_mode_ids_roundtrip() {
         for m in StackMode::ALL {
             assert_eq!(StackMode::from_id(m.id()), Some(m));
