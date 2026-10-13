@@ -239,7 +239,7 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
         // above carry it as resource 1058 and the importer reads them back from there. Handing the
         // codec a second copy in `meta.exif` bought nothing and made the export claim it would
         // drop metadata it had in fact kept (#1545).
-        xmp: doc.metadata.xmp.clone().filter(|_| opts.xmp == crate::XmpEmbed::All),
+        xmp: doc.metadata.xmp.as_ref().filter(|_| opts.xmp == crate::XmpEmbed::All).map(|x| x.to_string()),
         text: if opts.xmp == crate::XmpEmbed::All { doc.metadata.text.clone() } else { Vec::new() },
         dpi: Some((doc.resolution_dpi, doc.resolution_dpi)),
         photoshop_resources: Some(resources),
