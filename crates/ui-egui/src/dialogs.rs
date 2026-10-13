@@ -508,6 +508,12 @@ fn about_tab_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: &str) {
             ui.vertical_centered(|ui| {
                 crate::links::discord_button(app, ui, 220.0);
                 ui.add_space(8.0);
+                // Until an in-app update checker exists, make the release downloads discoverable
+                // here without implying that a version check has actually run (#5158).
+                if crate::widgets::secondary_button(ui, "View releases", 220.0).on_hover_text(crate::links::RELEASES).clicked() {
+                    crate::links::open(app, ui.ctx(), crate::links::RELEASES);
+                }
+                ui.add_space(8.0);
                 crate::links::link_row(app, ui);
             });
             ui.add_space(10.0);
