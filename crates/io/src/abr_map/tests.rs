@@ -188,14 +188,7 @@ fn dual_brush_tip_spacing_takes_precedence_over_wrapper_spacing() {
                 Descriptor::new("dualBrush")
                     .with("useDualBrush", Value::Boolean(true))
                     .with("Spcn", prc(100.0))
-                    .with(
-                        "Brsh",
-                        Value::Descriptor(
-                            Descriptor::new("computedBrush")
-                                .with("Dmtr", u(b"#Pxl", 12.0))
-                                .with("Spcn", prc(5.0)),
-                        ),
-                    ),
+                    .with("Brsh", Value::Descriptor(Descriptor::new("computedBrush").with("Dmtr", u(b"#Pxl", 12.0)).with("Spcn", prc(5.0)))),
             ),
         );
     let bytes = write_v6(2, &[], &[], &[preset], false).unwrap();
