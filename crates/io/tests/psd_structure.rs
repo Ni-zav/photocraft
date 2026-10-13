@@ -362,7 +362,7 @@ fn adjustment_and_fill_layers_from_psd() {
     assert!(matches!(d.layers[n - 4].content, LayerContent::Adjustment(Adjustment::Invert)));
     assert!(matches!(d.layers[n - 3].content, LayerContent::Adjustment(Adjustment::Posterize { levels: 4 })));
     assert!(
-        matches!(&d.layers[n - 2].content, LayerContent::Adjustment(Adjustment::Unsupported { psd_key, raw }) if psd_key == "selc" && raw == &vec![1, 2, 3])
+        matches!(&d.layers[n - 2].content, LayerContent::Adjustment(Adjustment::Unsupported { psd_key, raw }) if psd_key == "selc" && raw.as_slice() == &[1, 2, 3])
     );
     assert!(matches!(&d.layers[n - 1].content, LayerContent::Fill(Fill::Solid(c)) if c.c[0] == 1.0));
 }
