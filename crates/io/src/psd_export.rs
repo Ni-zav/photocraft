@@ -1395,7 +1395,7 @@ pub(crate) fn estimate_psd_size(doc: &Document) -> Option<u64> {
 
     structural_bytes = structural_bytes
         .checked_add(u64::try_from(doc.icc_profile.as_ref().map_or(0, |profile| profile.len())).ok()?)?
-        .checked_add(u64::try_from(doc.metadata.xmp.as_ref().map_or(0, String::len)).ok()?)?
+        .checked_add(u64::try_from(doc.metadata.xmp.as_ref().map_or(0, |x| x.len())).ok()?)?
         .checked_add(u64::try_from(doc.metadata.exif.as_ref().map_or(0, |data| data.len())).ok()?)?;
     for (_, name, data) in &doc.metadata.psd_resources {
         structural_bytes = structural_bytes.checked_add(u64::try_from(name.len()).ok()?)?.checked_add(u64::try_from(data.len()).ok()?)?;
