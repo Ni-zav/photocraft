@@ -1340,3 +1340,25 @@ pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8>
     let bounds = if warped { [l, t, r, b] } else { [0.0; 4] };
     write_tysh(&TySh { transform: layer.transform, text, warp, bounds })
 }
+
+#[cfg(test)]
+mod tysh_geometry_tests {
+    use super::*;
+
+    #[test]
+    fn reject_unusable_matrices_before_type_layout() {
+        let original = TySh {
+            transform: Affine { m: [1.0, 0.0, 0.0, 1.0, 30.0, 40.0] },
+            text: Descriptor::new("TxLr"),
+            warp: None,
+            bounds: [0.0; 4],
+        };
+        let clean = write_tysh(&original);
+        assert_eq!(parse_tysh(&clean).unwrap().transform, original.transform);
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.315776645269349e62] {
+            let mut bytes = clean.clone();
+            bytes[2..10].copy_from_slice(&bad.to_be_bytes());
+            assert!(parse_tysh(&bytes).is_none(), "invalid matrix must not be rendered: {bad}");
+        }
+    }
+}
