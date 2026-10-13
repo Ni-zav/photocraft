@@ -145,7 +145,8 @@ pub fn texture_combine(mode: MaskMode, v: f32, t: f32, d: f32) -> f32 {
 /// A stroke-ready brush: the settings plus prepared tip mips and texture.
 #[derive(Clone, Debug)]
 pub struct BrushContext {
-    pub brush: BrushSettings,
+    // Preview clones share immutable brush settings and sampled tip data.
+    pub brush: Arc<BrushSettings>,
     tip: Option<Arc<Mips>>,
     dual_tip: Option<Arc<Mips>>,
     texture: Option<Arc<PatternImage>>,
@@ -189,7 +190,7 @@ impl BrushContext {
             tip: mips(&brush.tip),
             dual_tip: if brush.dual_brush.enabled { mips(&brush.dual_brush.tip) } else { None },
             texture: prepare_pattern(&brush),
-            brush,
+            brush: Arc::new(brush),
         }
     }
 
