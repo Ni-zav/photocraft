@@ -4724,6 +4724,40 @@ mod type_flyout_tests {
     }
 
     #[test]
+    fn dragging_from_a_tool_group_opens_its_flyout_and_releases_on_a_different_tool() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
+        frame(&mut app, &ctx, 0.0, vec![]);
+        frame(&mut app, &ctx, 0.1, vec![]);
+        let index = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).position(|slot| slot.contains(&Tool::Type)).unwrap();
+        let bx = if Tokens::get(&ctx).pro { 30.0 } else { 36.0 };
+        let mut buttons: Vec<Rect> = ctx.viewport(|v| {
+            v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter())
+                .filter(|w| w.rect.size() == egui::Vec2::splat(bx) && w.sense.senses_click())
+                .map(|w| w.rect).collect()
+        });
+        buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        let at = buttons[index].center();
+        let key = egui::Id::new(("tool-slot", index));
+        let ptr = |p, down| egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: down, modifiers: Default::default() };
+        let flyout = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout")));
+        let initial = app.ui.tool;
+        frame(&mut app, &ctx, 1.0, vec![egui::Event::PointerMoved(at), ptr(at, true)]);
+        // Before the 350 ms hold threshold, moving away opens the menu without
+        // switching tools. Releasing over another row picks that row.
+        frame(&mut app, &ctx, 1.05, vec![egui::Event::PointerMoved(at + vec2(bx + 20.0, 0.0))]);
+        assert_eq!(flyout(&ctx).map(|(id, _)| id), Some(key));
+        assert_eq!(app.ui.tool, initial, "dragging alone should not select a different tool");
+        let menu = ctx.memory(|m| m.area_rect(key.with("flyout"))).unwrap();
+        let vertical_type = egui::pos2(menu.left() + 65.0, menu.top() + 39.0 + 8.0);
+        frame(&mut app, &ctx, 1.08, vec![egui::Event::PointerMoved(vertical_type)]);
+        frame(&mut app, &ctx, 1.10, vec![ptr(vertical_type, false)]);
+        assert_eq!(app.ui.tool, Tool::VerticalType);
+        assert!(flyout(&ctx).is_none(), "selection closes the flyout");
+    }
+
+    #[test]
     fn long_press_type_button_selects_type_then_vertical_from_the_flyout() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         assert_ne!(app.ui.tool, Tool::Type);
