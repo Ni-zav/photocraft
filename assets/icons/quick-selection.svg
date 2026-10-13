@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <!-- A broken selection edge identifies the active selection, not a marquee ellipse. -->
+  <path d="M9 3.4a8.7 8.7 0 0 0-3.5 1.7M3.4 8.3a8.7 8.7 0 0 0-.1 4.2m1.8 3.7a8.7 8.7 0 0 0 3.5 2.4m4.3.2a8.7 8.7 0 0 0 3.6-2.2" stroke-dasharray="2.5 1.75"/>
+  <!-- Brush nib and handle distinguish Quick Selection from the Elliptical Marquee. -->
+  <path d="m12.3 11.7 6.9-7.9a2 2 0 0 1 2.9 2.8l-7.8 7"/>
+  <path d="M13.7 13.5c.1 2.6-1.6 4.6-4 4.6-1.2 0-2.1.6-2.7 1.4-.4-3.1 1-5.8 4-6.5z"/>
+</svg>
