@@ -99,7 +99,7 @@ fn ctrl_temporarily_overrides_auto_select_without_changing_its_checkbox() {
     // Ctrl must still behave like the Photoshop temporary Auto-Select override (#5151).
     let ctrl_only = egui::Modifiers { ctrl: true, ..Default::default() };
 
-    let (mut app, a, b) = app();
+    let (mut app, a, _) = app();
     app.ui.tool_options.move_auto_select = false;
     drag(&mut app, [16.0, 16.0], [0.0, 6.0], ctrl_only);
     assert_eq!(active(&app), Some(a), "Ctrl picks the layer while Auto-Select is off");
