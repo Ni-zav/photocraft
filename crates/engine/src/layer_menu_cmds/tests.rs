@@ -115,13 +115,7 @@ fn matting_commands_fix_dark_fringes() {
 fn defringe_corrects_a_soft_edge_without_any_fully_transparent_pixels() {
     // Cropped content bounds may contain a soft antialiased edge but no alpha == 0.
     // The old implementation returned early without removing the blue fringe.
-    let mut px = vec![
-        [0.0, 0.0, 1.0, 0.3],
-        [0.0, 0.0, 1.0, 0.6],
-        [1.0, 0.0, 0.0, 1.0],
-        [1.0, 0.0, 0.0, 1.0],
-        [1.0, 0.0, 0.0, 1.0],
-    ];
+    let mut px = vec![[0.0, 0.0, 1.0, 0.3], [0.0, 0.0, 1.0, 0.6], [1.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]];
     let alpha: Vec<f32> = px.iter().map(|c| c[3]).collect();
     defringe(&mut px, 5, 1, 1);
     assert_eq!(px[0][..3], [1.0, 0.0, 0.0]);
