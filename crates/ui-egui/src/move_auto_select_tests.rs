@@ -94,6 +94,27 @@ fn command_click_picks_when_auto_select_is_off() {
 }
 
 #[test]
+fn ctrl_temporarily_overrides_auto_select_without_changing_its_checkbox() {
+    // Some input sources report Control without setting egui's platform command bit.
+    // Ctrl must still behave like the Photoshop temporary Auto-Select override (#5151).
+    let ctrl_only = egui::Modifiers { ctrl: true, ..Default::default() };
+
+    let (mut app, a, b) = app();
+    app.ui.tool_options.move_auto_select = false;
+    drag(&mut app, [16.0, 16.0], [0.0, 6.0], ctrl_only);
+    assert_eq!(active(&app), Some(a), "Ctrl picks the layer while Auto-Select is off");
+    assert_eq!(bounds(&app, a), Rect::new(8, 14, 24, 30));
+    assert!(!app.ui.tool_options.move_auto_select, "the saved checkbox stays off");
+
+    let (mut app, a, b) = app();
+    drag(&mut app, [16.0, 16.0], [-10.0, 0.0], ctrl_only);
+    assert_eq!(active(&app), Some(b), "with Auto-Select on, Ctrl still suspends it");
+    assert_eq!(bounds(&app, a), Rect::new(8, 8, 24, 24));
+    assert_eq!(bounds(&app, b), Rect::new(30, 40, 46, 56));
+    assert!(app.ui.tool_options.move_auto_select, "the saved checkbox stays on");
+}
+
+#[test]
 fn group_mode_picks_and_moves_the_outermost_group() {
     let (mut app, a, b) = app();
     app.session.execute("layer.select", json!({"layer": a.0})).unwrap();
