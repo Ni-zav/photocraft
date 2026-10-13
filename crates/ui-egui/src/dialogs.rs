@@ -999,3 +999,37 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod about_releases_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn about_releases_button_opens_the_official_page_via_platform_service() {
+        let opened = Arc::new(Mutex::new(Vec::<String>::new()));
+        let record = Arc::clone(&opened);
+        let services = crate::Services {
+            open_url: Some(Box::new(move |url| {
+                record.lock().unwrap().push(url.to_owned());
+                Ok(())
+            })),
+            ..Default::default()
+        };
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| about_tab_body(app, ui, "about"),
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+        h.run_steps(3);
+        h.get_by_label("View releases").click();
+        h.run_steps(2);
+
+        assert_eq!(
+            opened.lock().unwrap().as_slice(),
+            &[crate::links::RELEASES.to_string()]
+        );
+    }
+}
