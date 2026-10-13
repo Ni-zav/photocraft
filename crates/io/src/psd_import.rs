@@ -631,7 +631,7 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
                 }
             }
             ids::ICC_PROFILE => doc.icc_profile = Some(Arc::new(r.data.clone())),
-            ids::XMP => doc.metadata.xmp = Some(String::from_utf8_lossy(&r.data).into_owned()),
+            ids::XMP => doc.metadata.xmp = Some(Arc::<str>::from(String::from_utf8_lossy(&r.data).into_owned())),
             ids::EXIF => doc.metadata.exif = Some(Arc::new(r.data.clone())),
             1032 => parse_guides(&r.data, &mut doc),
             ids::GLOBAL_ANGLE | ids::GLOBAL_ALTITUDE => {
