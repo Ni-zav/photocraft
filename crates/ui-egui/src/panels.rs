@@ -2762,6 +2762,15 @@ fn layer_row(
     // Right-hand indicators first; the name gets what is left and ends in "…" (#144).
     let fx_open = app.session.active().is_none_or(|d| !d.fx_collapsed.contains(&l.id));
     let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, &painter, rect, x, l, fx_open, actions);
+    let lock_clicked = indicators.iter().find(|(kind, _)| *kind == crate::layer_row_ui::Indicator::Lock).is_some_and(|(_, hit)| {
+        let response = ui.interact(*hit, ui.id().with(("layer-row-lock", l.id.0)), Sense::click());
+        let clicked = response.clicked();
+        response.on_hover_text(tl!("Unlock layer"));
+        clicked
+    });
+    if lock_clicked {
+        actions.push(simple_lock_toggle(doc.is_background(l.id), l));
+    }
     // Dragging the fx badge drags all the layer's effects, not the layer (Photoshop). Like the eye,
     // it takes the drag from the row; clicks still reach the row.
     if let Some(&(_, badge)) = indicators.iter().find(|(k, _)| *k == crate::layer_row_ui::Indicator::Fx)
@@ -2808,7 +2817,7 @@ fn layer_row(
         actions.push(("select.loadSelection".into(), p));
     } else if let Some(cmd) = mask_toggle {
         actions.push(cmd);
-    } else if resp.clicked() && !eye_resp.clicked() && !toggled && !fx_toggled && !masks.clicked {
+    } else if resp.clicked() && !eye_resp.clicked() && !toggled && !fx_toggled && !lock_clicked && !masks.clicked {
         let mode = select_mode(ui.input(|i| i.modifiers));
         actions.push(("layer.select".into(), json!({"layer": l.id.0, "mode": mode})));
         // A thumbnail explicitly selects content or a mask. Selecting an adjustment/fill row
@@ -2849,7 +2858,7 @@ fn layer_row(
     // #2812) and a Smart Object thumbnail its contents, and a type thumbnail edits its text;
     // anywhere else on the row opens Layer Style (#350, #537).
     // The first click already made this the active layer.
-    if resp.double_clicked() {
+    if resp.double_clicked() && !lock_clicked {
         let pos = resp.interact_pointer_pos();
         let on = |r: Rect| pos.is_some_and(|p| r.expand(2.0).contains(p));
         if crate::doc_props_ui::is_background(doc, l) {
@@ -4607,6 +4616,29 @@ mod lock_tests {
         let l = st.active_layer.and_then(|id| st.doc.layer(id)).unwrap();
         let (cmd, p) = simple_lock_toggle(crate::doc_props_ui::is_background(&st.doc, l), l);
         app.run(&cmd, p).unwrap();
+    }
+
+    #[test]
+    fn clicking_the_layer_row_padlock_unlocks_the_background() {
+        use egui_kittest::Harness;
+
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 120, "height": 80})).unwrap();
+        let mut h = Harness::builder().with_size(vec2(430.0, 500.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                egui::CentralPanel::default().show_inside(ui, |ui| layers(app, ui));
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(3);
+        let row = crate::layer_row_ui::recorded(&h.ctx).into_iter().find(|r| r.indicators.iter().any(|(kind, _)| *kind == crate::layer_row_ui::Indicator::Lock)).unwrap();
+        let icon = row.indicators.iter().find(|(kind, _)| *kind == crate::layer_row_ui::Indicator::Lock).unwrap().1;
+        h.click_at(icon.center());
+        h.run_steps(2);
+        let layer = &h.state().session.active().unwrap().doc.layers[0];
+        assert_eq!(layer.name, "Layer 0");
+        assert!(!layer.locks.any());
     }
 
     fn erase_line(app: &mut PhotocraftApp) {
