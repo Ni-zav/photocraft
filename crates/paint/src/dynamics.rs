@@ -4,6 +4,8 @@
 //! Everything is incremental (feed points in any chunking, get the same dabs) and deterministic:
 //! jitter comes from [`crate::rng`] keyed by the stroke seed and the step/dab index.
 
+use std::sync::Arc;
+
 use photocraft_geom::Point;
 
 use crate::brush::{BrushSettings, Control, Dynamic, Smoothing};
@@ -454,7 +456,9 @@ pub fn base_diameter(b: &BrushSettings, s: &StepInput) -> f32 {
 /// Builds the primary dabs of a step (Shape Dynamics, Scattering, Transfer, Color, Texture depth).
 #[derive(Clone, Debug)]
 pub struct DabBuilder {
-    pub brush: BrushSettings,
+    // The generator is cloned to paint a live tail preview on every pointer event.
+    // Keep the (possibly multi-megabyte sampled) tip behind a cheap shared handle.
+    pub brush: Arc<BrushSettings>,
     pub seed: u64,
     /// Per-stroke colour (Color Dynamics with per-tip off), computed at the first step.
     stroke_color: Option<[f32; 4]>,
@@ -463,7 +467,7 @@ pub struct DabBuilder {
 
 impl DabBuilder {
     pub fn new(brush: &BrushSettings) -> Self {
-        Self { brush: brush.clone(), seed: brush.seed, stroke_color: None, next_index: 0 }
+        Self { brush: Arc::new(brush.clone()), seed: brush.seed, stroke_color: None, next_index: 0 }
     }
 
     pub fn step_len(&self, p: &StrokePoint) -> f64 {
@@ -588,13 +592,13 @@ impl DabBuilder {
 /// Builds Dual Brush dabs (the second tip: size, spacing, scatter, count, flip).
 #[derive(Clone, Debug)]
 pub struct DualBuilder {
-    pub brush: BrushSettings,
+    pub brush: Arc<BrushSettings>,
     next_index: u64,
 }
 
 impl DualBuilder {
     pub fn new(brush: &BrushSettings) -> Self {
-        Self { brush: brush.clone(), next_index: 0 }
+        Self { brush: Arc::new(brush.clone()), next_index: 0 }
     }
     pub fn step_len(&self, _p: &StrokePoint) -> f64 {
         let d = &self.brush.dual_brush;
