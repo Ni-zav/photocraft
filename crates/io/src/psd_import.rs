@@ -833,7 +833,7 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         } else if h.color_mode == PsdMode::Duotone && !file.color_mode_data.is_empty() {
             // The duotone ink block is undocumented: keep it raw; the image shows as its gray plate.
             doc.duotone =
-                Some(photocraft_doc::Duotone { inks: vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3])], psd_raw: Some(file.color_mode_data.clone()) });
+                Some(photocraft_doc::Duotone { inks: vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3])], psd_raw: Some(Arc::new(file.color_mode_data.clone())) });
             cx.warn("duotone inks are not interpreted (shown as grayscale)");
         } else if !file.color_mode_data.is_empty() {
             cx.warn("color mode data is not preserved");
