@@ -505,7 +505,7 @@ fn file_info_translations_survive_undo_and_psd_round_trip() {
     for depth in [8, 16, 32] {
         let mut s = session(8, 8, depth);
         s.edit("Set metadata", |doc, _| {
-            doc.metadata.xmp = Some(MULTILINGUAL_XMP.to_string());
+            doc.metadata.xmp = Some(MULTILINGUAL_XMP.into());
             Ok(())
         })
         .unwrap();
