@@ -509,11 +509,9 @@ fn parse_black_white(d: &[u8]) -> Option<Adjustment> {
 /// (colour space + four u16), version 3 "4 bytes each for XYZ color"; then density (u32 percent)
 /// and preserve luminosity (1 byte).
 ///
-/// The spec gives no scale for the XYZ values. They are read as D50 XYZ (the ICC PCS) with
-/// 1.0 = 32768, the ICC 16-bit PCSXYZ encoding. That is inferred, not documented: the
-/// Photoshop CS2 file in #3777 holds (24191, 25002, 3827), a bright warm yellow at this scale,
-/// and rendering it against Photoshop's export fit best between 30000 and 32768 (1.0 = 65536,
-/// a dull olive, was clearly worse).
+/// Version 3 stores XYZ relative to the D50 white point, with 1.0 = 32768.
+/// Restore the white-point scaling before converting to linear RGB; otherwise
+/// out-of-gamut presets lose their chroma when converted to sRGB.
 const PHFL_XYZ_ONE: f32 = 32768.0;
 
 fn parse_photo_filter(d: &[u8]) -> Option<Adjustment> {
@@ -532,14 +530,17 @@ fn parse_photo_filter(d: &[u8]) -> Option<Adjustment> {
             if xyz.iter().any(|v| *v > 2.0) {
                 return None;
             }
-            let lin = photocraft_color::convert::mat3_mul(&photocraft_color::convert::XYZ_D50_TO_SRGB, xyz);
-            (lin.map(|v| photocraft_color::convert::linear_to_srgb(v.clamp(0.0, 1.0))), 14)
+            let white = photocraft_color::convert::D50;
+            let absolute = [xyz[0] * white[0], xyz[1], xyz[2] * white[2]];
+            let lin = photocraft_color::convert::mat3_mul(&photocraft_color::convert::XYZ_D50_TO_SRGB, absolute);
+            // Extended sRGB preserves negative and >1 linear components for the filter matrix.
+            (lin.map(photocraft_color::convert::linear_to_srgb), 14)
         }
         _ => return None,
     };
     let density = (be32(d, at)? as f32 / 100.0).clamp(0.0, 1.0);
     let preserve_luminosity = *d.get(at + 4)? != 0;
-    Some(Adjustment::PhotoFilter { color: color.map(|v| v.clamp(0.0, 1.0)), density, preserve_luminosity })
+    Some(Adjustment::PhotoFilter { color, density, preserve_luminosity })
 }
 
 /// `mixr` (Adobe spec, "Channel Mixer"): version (1), monochrome (u16), then one 10-byte record
@@ -749,20 +750,39 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
             return vec![(*b"blwh", VersionedDescriptor::new(d).to_bytes())];
         }
         Adjustment::PhotoFilter { color, density, preserve_luminosity } => {
-            // Version 2: an RGB colour structure keeps the colour at 16 bits.
-            put16(&mut v, 2);
-            put16(&mut v, 0);
-            for x in color {
-                put16(&mut v, (x.clamp(0.0, 1.0) * 65535.0).round() as u16);
+            let absolute = photocraft_color::convert::mat3_mul(
+                &photocraft_color::convert::SRGB_TO_XYZ_D50,
+                color.map(photocraft_color::convert::srgb_to_linear),
+            );
+            let white = photocraft_color::convert::D50;
+            let relative = [absolute[0] / white[0], absolute[1], absolute[2] / white[2]];
+            // An edited out-of-gamut CS2 filter cannot be represented by version 2 RGB.
+            // Keep its full colour in the version 3 XYZ representation instead.
+            let use_xyz = color.iter().all(|c| c.is_finite()) && color.iter().any(|c| !(0.0..=1.0).contains(c))
+                && relative.iter().all(|v| (0.0..=2.0).contains(v));
+            if use_xyz {
+                put16(&mut v, 3);
+                for x in relative {
+                    v.extend_from_slice(&((x * PHFL_XYZ_ONE).round() as u32).to_be_bytes());
+                }
+            } else {
+                // Version 2: an RGB colour structure keeps in-gamut colours at 16 bits.
+                put16(&mut v, 2);
+                put16(&mut v, 0);
+                for x in color {
+                    put16(&mut v, (x.clamp(0.0, 1.0) * 65535.0).round() as u16);
+                }
+                put16(&mut v, 0);
             }
-            put16(&mut v, 0);
             v.extend_from_slice(&((density.clamp(0.0, 1.0) * 100.0).round() as u32).to_be_bytes());
             v.push(u8::from(*preserve_luminosity));
-            // Photoshop requires the 17-byte Photo Filter payload after the version to be
-            // padded to a 4-byte boundary INSIDE the tagged block's declared length.
-            // A single pad byte made an 18-byte `phfl` block that Photoshop could not open
-            // even though PhotoCraft and other tolerant readers accepted it (#1455).
-            v.extend_from_slice(&[0, 0, 0]);
+            // Photoshop requires version 2 payloads padded within the declared block length.
+            // Version 3 needs only one byte to make the 19-byte payload 4-byte aligned.
+            if use_xyz {
+                v.push(0);
+            } else {
+                v.extend_from_slice(&[0, 0, 0]);
+            }
             return vec![(*b"phfl", v)];
         }
         Adjustment::ChannelMixer { matrix, monochrome } => {
@@ -1168,20 +1188,27 @@ mod tests {
         let Adjustment::PhotoFilter { color, density, preserve_luminosity: false } = parse(b"phfl", &lab, None, Channels::Rgb) else { panic!() };
         assert!(color.iter().all(|c| (c - 0.466).abs() < 0.01), "{color:?}");
         assert_eq!(density, 0.25);
-        // Version 3: D50 XYZ, 1.0 = 32768. The ICC sRGB white point (D50) is white.
-        let v3 = phfl_v3([31595, 32768, 27040], 100, true);
+        // Version 3 is relative to D50, so [1, 1, 1] is sRGB white.
+        let v3 = phfl_v3([32768; 3], 100, true);
         let Adjustment::PhotoFilter { color, density, preserve_luminosity: true } = parse(b"phfl", &v3, None, Channels::Rgb) else { panic!() };
         assert!(color.iter().all(|c| (c - 1.0).abs() < 0.005), "{color:?}");
         assert_eq!(density, 1.0);
-        // Photoshop's Warming Filter (85) preset, sRGB #EC8A00, is D50 XYZ (15193, 12086, 1192).
+        // Photoshop CS2's Warming Filter (85) stores D50-relative XYZ. Its blue
+        // component is outside sRGB and must survive until the colour matrix is built.
         let Adjustment::PhotoFilter { color, density, preserve_luminosity: false } =
-            parse(b"phfl", &phfl_v3([15193, 12086, 1192], 25, false), None, Channels::Rgb)
+            parse(b"phfl", &phfl_v3([15548, 12029, 0], 25, false), None, Channels::Rgb)
         else {
             panic!()
         };
-        let expected = [0xecu8, 0x8a, 0x00].map(|v| f32::from(v) / 255.0);
-        assert!(color.iter().zip(expected).all(|(got, want)| (got - want).abs() < 1.5 / 255.0), "{color:?}");
+        let expected = [0xecu8, 0x8a, 0].map(|v| f32::from(v) / 255.0);
+        assert!((color[0] - expected[0]).abs() < 2.0 / 255.0, "{color:?}");
+        assert!((color[1] - expected[1]).abs() < 2.0 / 255.0, "{color:?}");
+        assert!(color[2] < 0.0, "out-of-gamut blue must remain negative: {color:?}");
         assert_eq!(density, 0.25);
+        let encoded = write(&Adjustment::PhotoFilter { color, density, preserve_luminosity: false });
+        assert_eq!(&encoded[0].1[..2], &[0, 3], "extended colours need XYZ on export");
+        let Adjustment::PhotoFilter { color: back, .. } = parse(b"phfl", &encoded[0].1, None, Channels::Rgb) else { panic!() };
+        assert!(back.iter().zip(color).all(|(got, want)| (got - want).abs() < 0.001), "{back:?} vs {color:?}");
         // The block from #3777 (Photoshop CS2): a warm yellow, density 63 %, preserve luminosity.
         let issue = [0, 3, 0, 0, 0x5e, 0x7f, 0, 0, 0x61, 0xaa, 0, 0, 0x0e, 0xf3, 0, 0, 0, 0x3f, 1, 0];
         let Adjustment::PhotoFilter { color, density, preserve_luminosity: true } = parse(b"phfl", &issue, None, Channels::Rgb) else { panic!() };

@@ -729,7 +729,9 @@ fn lut(table: &[f32], v: f32) -> f32 {
 /// photoshop corpus `photo-filter.psd`: rgb16 within 0.6/255 everywhere.
 pub fn photo_filter_matrix(color: [f32; 3], density: f32, normalize_y: bool) -> [[f32; 3]; 3] {
     let d = if density.is_finite() { density.clamp(0.0, 1.0) } else { 0.0 };
-    let xyz = mat3_mul(&SRGB_TO_XYZ_D50, color.map(|v| srgb_to_linear(v.clamp(0.0, 1.0))));
+    // PSD version 3 can encode out-of-gamut filter colours; retain them until the
+    // linear-light transform instead of clipping to the sRGB cube.
+    let xyz = mat3_mul(&SRGB_TO_XYZ_D50, color.map(srgb_to_linear));
     let mut s: [f32; 3] = std::array::from_fn(|i| 1.0 - d + d * xyz[i] / D50[i]);
     if normalize_y && s[1] > 1e-6 {
         let y = s[1];
