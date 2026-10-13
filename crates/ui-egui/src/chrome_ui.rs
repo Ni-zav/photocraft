@@ -282,6 +282,21 @@ mod tests {
     }
 
     #[test]
+    fn status_bounds_reports_active_layer_and_selection_without_changing_display_units() {
+        let d = doc();
+        let id = d.layers[0].id;
+        assert_eq!(status_bounds_text(&d, Some(id)), "Layer: X 0  Y 0  W 2400  H 1500");
+        assert_eq!(status_bounds_text(&d, None), "No selection or layer");
+        // The selected pixel region takes precedence over the active layer. The
+        // same geometry is shown in pixels even when rulers are set to inches.
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 120, "height": 80})).unwrap();
+        session.execute("select.all", json!({})).unwrap();
+        let doc = &session.active().unwrap().doc;
+        assert_eq!(status_bounds_text(doc, None), "Selection: X 0  Y 0  W 120  H 80");
+    }
+
+    #[test]
     fn default_status_shows_dimensions_like_photoshop() {
         let d = doc();
         assert_eq!(ChromeState::default().status_info, "dimensions");
