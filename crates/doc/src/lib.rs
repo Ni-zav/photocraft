@@ -1437,6 +1437,25 @@ mod tests {
     }
 
     #[test]
+    fn large_xmp_stays_shared_across_document_snapshots() {
+        use std::sync::Arc;
+        let mut doc = doc();
+        let packet = format!("<x:xmpmeta>{}</x:xmpmeta>", "history".repeat(8000));
+        doc.metadata.xmp = Some(Arc::<str>::from(packet.clone()));
+        let original = doc.metadata.xmp.as_ref().unwrap().clone();
+        let first = doc.clone();
+        let second = first.clone();
+        assert!(Arc::ptr_eq(doc.metadata.xmp.as_ref().unwrap(), first.metadata.xmp.as_ref().unwrap()));
+        assert!(Arc::ptr_eq(first.metadata.xmp.as_ref().unwrap(), second.metadata.xmp.as_ref().unwrap()));
+        assert_eq!(second.metadata.xmp.as_deref(), Some(packet.as_str()));
+        // Editing an XMP packet replaces only that document's pointer; history
+        // snapshots retain the old text without copying its backing bytes.
+        doc.metadata.xmp = Some(Arc::<str>::from("<x:xmpmeta>edited</x:xmpmeta>"));
+        assert!(Arc::ptr_eq(&original, first.metadata.xmp.as_ref().unwrap()));
+        assert_ne!(doc.metadata.xmp, first.metadata.xmp);
+    }
+
+    #[test]
     fn snapshot_clone_is_independent() {
         let mut d = doc();
         let snap = d.clone();
