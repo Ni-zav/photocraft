@@ -133,7 +133,7 @@ pub fn tool_icon(t: Tool) -> &'static str {
         Tool::Dodge => "lollipop",
         Tool::Burn => "flame",
         Tool::Sponge => "cloud",
-        Tool::QuickSelection => "circle-dashed",
+        Tool::QuickSelection => "quick-selection",
         Tool::ObjectSelection => "square-dashed-mouse-pointer",
         Tool::Pen => "pen-tool",
         Tool::FreeformPen => "pen-freeform",
@@ -226,6 +226,8 @@ mod tests {
         }
         assert_eq!(tool_icon(Tool::Gradient), "gradient");
         assert_ne!(tool_icon(Tool::Gradient), tool_icon(Tool::PaintBucket));
+        assert_ne!(tool_icon(Tool::QuickSelection), tool_icon(Tool::EllipseMarquee), "Quick Selection must not look like the Ellipse Marquee (#5116)");
+        assert_ne!(tool_icon(Tool::QuickSelection), tool_icon(Tool::Brush));
     }
 
     #[test]
