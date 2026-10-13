@@ -179,9 +179,18 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         app.ui.tool = tool;
                                         let _ = app.run("view.actualPixels", json!({}));
                                     }
-                                    // Right-click or long-press opens the flyout (Photoshop).
-                                    let held_for =
-                                        resp.is_pointer_button_down_on().then(|| ui.input(|i| i.pointer.press_start_time().map(|t0| i.time - t0))).flatten();
+                                    // A press held on a grouped tool or dragged away from it
+                                    // opens its flyout. Keep ownership of the initial press even
+                                    // after the pointer leaves the icon (#2301).
+                                    let (held_for, drag_off) = ui.input(|i| {
+                                        let pointer = &i.pointer;
+                                        let owned = pointer.primary_down() && pointer.press_origin().is_some_and(|p| resp.rect.contains(p));
+                                        let held = owned.then(|| pointer.press_start_time().map(|t0| i.time - t0)).flatten();
+                                        let moved = owned && pointer.latest_pos().is_some_and(|p| {
+                                            !resp.rect.contains(p) && p.distance(resp.rect.center()) > resp.rect.width() / 2.0 + 6.0
+                                        });
+                                        (held, moved)
+                                    });
                                     if slot.len() > 1
                                         && let Some(seconds) = held_for
                                         && seconds < 0.35
@@ -189,10 +198,10 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(0.35 - seconds));
                                     }
                                     let long_press = held_for.is_some_and(|seconds| seconds >= 0.35);
-                                    if slot.len() > 1 && (resp.secondary_clicked() || long_press) {
+                                    if slot.len() > 1 && (resp.secondary_clicked() || long_press || drag_off) {
                                         ui.data_mut(|d| {
                                             d.insert_temp(flyout_id, (key, resp.rect));
-                                            if long_press {
+                                            if long_press || drag_off {
                                                 d.insert_temp(held_id, key);
                                             }
                                         });
@@ -260,7 +269,13 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                                 t.text_dim,
                                                             );
                                                         }
-                                                        if ir.clicked() {
+                                                        // A drag that started on the toolbar button
+                                                        // cannot produce ir.clicked() on the row:
+                                                        // select the item under the release pointer.
+                                                        let drag_release = ui.data(|d| d.get_temp::<egui::Id>(held_id)) == Some(key)
+                                                            && ui.input(|i| i.pointer.primary_released()
+                                                                && i.pointer.latest_pos().is_some_and(|p| r.contains(p)));
+                                                        if ir.clicked() || drag_release {
                                                             app.ui.tool = item;
                                                             ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
                                                         }
