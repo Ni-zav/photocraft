@@ -430,11 +430,7 @@ impl Mapper<'_> {
             dual.flip = boolean(db, "Flip").unwrap_or(false);
             // The nested brush tip owns its spacing. Some ABR presets also carry a
             // wrapper value, which is only a fallback when the tip omits Spcn.
-            dual.spacing = obj(db, "Brsh")
-                .and_then(|tip| pct(tip, "Spcn"))
-                .or_else(|| pct(db, "Spcn"))
-                .unwrap_or(dual.spacing)
-                .clamp(0.01, 10.0);
+            dual.spacing = obj(db, "Brsh").and_then(|tip| pct(tip, "Spcn")).or_else(|| pct(db, "Spcn")).unwrap_or(dual.spacing).clamp(0.01, 10.0);
             dual.scatter = self.dynamic(obj(db, "scatterDynamics")).jitter;
             dual.both_axes = boolean(db, "bothAxes").unwrap_or(false);
             dual.count = num(db, "Cnt ").map_or(1, |v| v.clamp(1.0, 16.0) as u32);
