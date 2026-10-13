@@ -519,12 +519,13 @@ fn value_field_box(
     // 6 pt from the right edge), so a one-character unit like `%` leaves the number room (#3040).
     let suffix_font = theme::mono(11.0);
     let suffix_w = if suffix.is_empty() { 0.0 } else { ui.painter().layout_no_wrap(suffix.to_owned(), suffix_font.clone(), t.text_faint).size().x + 3.0 };
-    // 1 pt higher than centred: digits have no descenders, so centred text looks low. The slot
-    // is at least one text row tall, so a slim box's number isn't pushed out of it (#2823).
+    // Keep the number's hit box, focus ring and digits centered on the suffix and the field
+    // border. An earlier optical -1 pt offset left the edit box visibly high (#5150).
+    // The slot is at least one text row tall even in the compact status bar (#2823).
     let font = theme::mono(12.0);
     let row_h = ui.painter().layout_no_wrap("0".into(), font.clone(), t.text).size().y;
     let slot_h = (rect.height() - 4.0).max(row_h).min(rect.height() - 2.0);
-    let cy = rect.center().y - 1.0;
+    let cy = rect.center().y;
     let field = Rect::from_min_max(pos2(rect.left() + 4.0, cy - slot_h / 2.0), pos2(rect.right() - 4.0 - suffix_w - trailing, cy + slot_h / 2.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
     let fine = range.end() - range.start() <= 10.0;
@@ -1842,9 +1843,9 @@ mod tests {
         h
     }
 
-    /// Digits have no descenders, so the number sits 1 pt above the box's centre to look centred.
+    /// A numeric edit and its unit suffix share the field's vertical center (#5150).
     #[test]
-    fn value_field_digits_sit_one_point_above_centre() {
+    fn value_field_digits_are_vertically_centered() {
         let mut h = Harness::new_ui_state(
             |ui, s: &mut (f32, egui::Rect)| {
                 s.1 = super::value_field_in(ui, &mut s.0, 0.0..=100.0, "px", 80.0, 0.0, super::FieldOpts::default()).1;
@@ -1854,11 +1855,11 @@ mod tests {
         h.run();
         let number = h.get_by_role(egui::accesskit::Role::SpinButton).rect();
         let field = h.state().1;
-        assert!((field.center().y - number.center().y - 1.0).abs() < 0.01, "field {field:?}, number {number:?}");
+        assert!((field.center().y - number.center().y).abs() < 0.01, "field {field:?}, number {number:?}");
     }
 
     /// With the app's theme (its 24 pt interact height and 4 pt button padding), in a full-size
-    /// box and a slim status-bar box alike, the number stays inside the box, 1 pt above its centre,
+    /// box and a slim status-bar box alike, the number stays inside the box, centered on its unit,
     /// and a long number doesn't spill out of the box's left edge (#2823).
     #[test]
     fn themed_value_field_number_sits_inside_its_box_in_every_size() {
@@ -1878,7 +1879,7 @@ mod tests {
                 let field = harness.state().1;
                 let what = format!("{kind:?} {w}x{h}: field {field:?}, number {number:?}");
                 assert!(field.contains_rect(number), "{what}");
-                assert!((field.center().y - number.center().y - 1.0).abs() < 0.51, "{what}");
+                assert!((field.center().y - number.center().y).abs() < 0.51, "{what}");
             }
         }
     }
