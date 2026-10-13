@@ -257,11 +257,7 @@ pub fn defringe(px: &mut [[f32; 4]], w: usize, h: usize, width: usize) {
     // A feathered cutout can have no fully transparent pixel inside the cropped content
     // bounds. Such an edge was silently skipped. Treat partial alpha as the boundary in
     // that case, while retaining fully opaque interior pixels as clean colour sources.
-    let seeds: Vec<bool> = if outside.iter().any(|o| *o) {
-        outside.clone()
-    } else {
-        px.iter().map(|q| q[3] < 0.999).collect()
-    };
+    let seeds: Vec<bool> = if outside.iter().any(|o| *o) { outside.clone() } else { px.iter().map(|q| q[3] < 0.999).collect() };
     if !seeds.iter().any(|s| *s) {
         return;
     }
