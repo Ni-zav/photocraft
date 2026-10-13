@@ -4450,9 +4450,7 @@ mod toolbar_tests {
             );
             PhotocraftApp::setup_context(&h.ctx, theme);
             h.run_steps(2);
-            let left = |h: &egui_kittest::Harness<'_, PhotocraftApp>| {
-                h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("toolbar-test-left"))).unwrap_or(0.0)
-            };
+            let left = |h: &egui_kittest::Harness<'_, PhotocraftApp>| h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("toolbar-test-left"))).unwrap_or(0.0);
             let single = left(&h);
             assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
 
