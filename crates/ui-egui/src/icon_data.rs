@@ -25,6 +25,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("chevrons-right", include_bytes!("../../../assets/icons/chevrons-right.svg")),
     ("circle", include_bytes!("../../../assets/icons/circle.svg")),
     ("circle-dashed", include_bytes!("../../../assets/icons/circle-dashed.svg")),
+    // Original Quick Selection glyph: a brush tip crossing a partial selection marquee (#5116).
+    ("quick-selection", include_bytes!("../../../assets/icons/quick-selection.svg")),
     ("circle-dot", include_bytes!("../../../assets/icons/circle-dot.svg")),
     ("clip-below", include_bytes!("../../../assets/icons/clip-below.svg")),
     ("clip-release", include_bytes!("../../../assets/icons/clip-release.svg")),
