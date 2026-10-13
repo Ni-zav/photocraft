@@ -1821,7 +1821,7 @@ mod tests {
         data.put_u16(1);
         data.extend(VersionedDescriptor::new(Descriptor::new("warp")).to_bytes());
         for v in [0.0, 0.0, 100.0, 20.0] {
-            data.put_f32(v);
+            data.extend_from_slice(&v.to_be_bytes());
         }
         let (_big, mut little) = block_rt(*b"TySh", data.clone());
         // Photoshop's observed mixed layout: the transform is LE, but the
