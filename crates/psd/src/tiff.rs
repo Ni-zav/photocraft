@@ -848,11 +848,26 @@ pub mod transcode {
                 b"TySh" => {
                     self.u16()?;
                     self.f64s(6)?;
-                    self.u16()?;
-                    self.versioned_descriptor()?;
-                    self.u16()?;
-                    self.versioned_descriptor()?;
-                    self.i32s(4)?;
+                    // Photoshop's Intel-order layered TIFFs can use little-endian
+                    // transform doubles followed by big-endian descriptors. Identify
+                    // the boundary using both the text and descriptor versions.
+                    // The rest is already canonical PSD data: leave its key lengths,
+                    // EngineData and warp bytes untouched.
+                    let mixed = if self.from == ByteOrder::Little && self.to == ByteOrder::Big {
+                        let mut probe = self.r.clone();
+                        matches!(probe.bytes(6), Ok(b) if b == [0, 50, 0, 0, 0, 16])
+                    } else {
+                        false
+                    };
+                    if mixed {
+                        self.rest()?;
+                    } else {
+                        self.u16()?;
+                        self.versioned_descriptor()?;
+                        self.u16()?;
+                        self.versioned_descriptor()?;
+                        self.i32s(4)?;
+                    }
                 }
                 b"vmsk" | b"vsms" => {
                     self.u32()?;
@@ -1792,6 +1807,35 @@ mod tests {
         let (_, little) = block_rt(*b"TySh", data);
         assert!(little[48..].starts_with(&[1, 0]));
         assert_eq!(&little[50..58], &1.0f64.to_le_bytes());
+    }
+
+    #[test]
+    fn intel_tiff_with_big_endian_type_descriptors_normalizes_without_losing_text() {
+        let mut data = Vec::new();
+        data.put_u16(1);
+        for v in [1.8054202887117468, 0.0, -2.01242653341062, 1.0, 12.5, -3.0] {
+            data.put_f64(v);
+        }
+        data.put_u16(50);
+        data.extend(VersionedDescriptor::new(Descriptor::new("TxLr")).to_bytes());
+        data.put_u16(1);
+        data.extend(VersionedDescriptor::new(Descriptor::new("warp")).to_bytes());
+        for v in [0.0, 0.0, 100.0, 20.0] {
+            data.put_f32(v);
+        }
+        let (_big, mut little) = block_rt(*b"TySh", data.clone());
+        // Photoshop's observed mixed layout: the transform is LE, but the
+        // descriptor portion beginning with text version 50 stays BE.
+        let payload = 48;
+        let descriptor = payload + 2 + 6 * 8;
+        little[descriptor..descriptor + data.len() - 50].copy_from_slice(&data[50..]);
+        let (recovered, warnings) = ImageSourceData::from_bytes(&little).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let tysh = &recovered.global_blocks[0];
+        assert_eq!(tysh.signature, *b"8BIM");
+        assert_eq!(tysh.data, data);
+        assert_eq!(f64::from_be_bytes(tysh.data[2..10].try_into().unwrap()), 1.8054202887117468);
+        assert_eq!(f64::from_be_bytes(tysh.data[18..26].try_into().unwrap()), -2.01242653341062);
     }
 
     #[test]
