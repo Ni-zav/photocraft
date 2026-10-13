@@ -37,6 +37,12 @@ pub fn parse_tysh(data: &[u8]) -> Option<TySh> {
     for (i, v) in m.iter_mut().enumerate() {
         *v = f(2 + i * 8)?;
     }
+    // Malformed type matrices must never reach egui rectangle construction or the
+    // text layout engine. A TIFF with unconverted Intel-order doubles can contain
+    // enormous finite numbers as well as NaN/Inf.
+    if m.iter().any(|v| !v.is_finite() || v.abs() > 1.0e9) {
+        return None;
+    }
     let (text, used) = VersionedDescriptor::parse_prefix(data.get(52..)?).ok()?;
     let rest = data.get(52 + used..).unwrap_or(&[]);
     let (warp, wused) = match rest.get(2..).and_then(|r| VersionedDescriptor::parse_prefix(r).ok()) {
