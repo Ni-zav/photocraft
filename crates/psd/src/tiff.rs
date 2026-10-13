@@ -1820,7 +1820,7 @@ mod tests {
         data.extend(VersionedDescriptor::new(Descriptor::new("TxLr")).to_bytes());
         data.put_u16(1);
         data.extend(VersionedDescriptor::new(Descriptor::new("warp")).to_bytes());
-        for v in [0.0, 0.0, 100.0, 20.0] {
+        for v in [0.0f32, 0.0, 100.0, 20.0] {
             data.extend_from_slice(&v.to_be_bytes());
         }
         let (_big, mut little) = block_rt(*b"TySh", data.clone());
