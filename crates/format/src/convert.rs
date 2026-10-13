@@ -232,7 +232,7 @@ pub(crate) fn doc_m(d: &Document, sink: &mut dyn Sink) -> DocM {
         guides: d.guides.clone(),
         selection: d.selection.as_ref().map(|s| surface_m(s, sink)),
         metadata: MetadataM {
-            xmp: d.metadata.xmp.clone(),
+            xmp: d.metadata.xmp.as_ref().map(|x| x.to_string()),
             exif: opt_blob(&d.metadata.exif, sink),
             text: d.metadata.text.clone(),
             psd_resources: d.metadata.psd_resources.iter().map(|(id, n, b)| (*id, n.clone(), sink.blob(b))).collect(),
@@ -574,7 +574,7 @@ impl Loader<'_> {
         }
         let quick_mask = m.quick_mask.as_ref().map(|c| self.channel(c)).transpose()?;
         let mut md = Metadata {
-            xmp: m.metadata.xmp.clone(),
+            xmp: m.metadata.xmp.clone().map(std::sync::Arc::from),
             exif: self.opt_blob(&m.metadata.exif)?,
             text: m.metadata.text.clone(),
             psd_resources: Vec::new(),
