@@ -391,14 +391,15 @@ mod tests {
         app.run("channel.setVisible", json!({"channel": "red", "visible": false})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
         let id = app.session.active().unwrap().doc.id.0;
-        let first = app.channel_views.get(&id).unwrap().source.as_ref().unwrap();
+        let first = app.channel_views.get_mut(&id).unwrap().source.as_mut().unwrap();
         let original_sample = first.pixels[0];
-        let ptr = first.pixels.as_ptr();
+        // Mark the cache: a recomposite overwrites it, while a freed buffer's address can come back.
+        first.pixels[0] = [0.0, 1.0, 0.0, 1.0];
 
         app.run("channel.setVisible", json!({"channel": "green", "visible": false})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
         let reused = app.channel_views.get(&id).unwrap().source.as_ref().unwrap();
-        assert_eq!(ptr, reused.pixels.as_ptr(), "visibility does not recompose the pixels");
+        assert_eq!(reused.pixels[0], [0.0, 1.0, 0.0, 1.0], "visibility does not recompose the pixels");
 
         app.run("edit.fill", json!({"color": "#e02010"})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
