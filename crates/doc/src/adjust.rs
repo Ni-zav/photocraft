@@ -359,6 +359,20 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_adjustment_shares_raw_payload_and_preserves_json() {
+        use std::sync::Arc;
+        let bytes: Vec<u8> = (0..8192).map(|i| (i % 251) as u8).collect();
+        let a = Adjustment::Unsupported { psd_key: "selc".into(), raw: Arc::new(bytes.clone()) };
+        let copied = a.clone();
+        let (Adjustment::Unsupported { raw: first, .. }, Adjustment::Unsupported { raw: second, .. }) = (&a, &copied) else { panic!() };
+        assert!(Arc::ptr_eq(first, second));
+        let json = serde_json::to_value(&a).unwrap();
+        assert_eq!(json["Unsupported"]["raw"], serde_json::json!(bytes));
+        let restored: Adjustment = serde_json::from_value(json).unwrap();
+        assert_eq!(restored, a);
+    }
+
+    #[test]
     fn lut3d_len_rejects_tiny_and_overflowing_sizes() {
         assert_eq!(lut3d_len(0), None);
         assert_eq!(lut3d_len(1), None);
