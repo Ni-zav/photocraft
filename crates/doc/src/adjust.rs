@@ -284,7 +284,7 @@ pub enum Adjustment {
     /// A PSD adjustment we can't evaluate yet; preserved raw for round-trip.
     Unsupported {
         psd_key: String,
-        raw: Vec<u8>,
+        raw: std::sync::Arc<Vec<u8>>,
     },
 }
 
