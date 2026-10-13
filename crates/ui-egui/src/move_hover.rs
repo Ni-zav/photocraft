@@ -1,5 +1,5 @@
 //! Move tool › Show Highlight on Rollover (Preferences › Tools, on by default): with Auto-Select
-//! on, or ⌘ held while it is off, hovering the canvas outlines the layer (or group, per the
+//! on, or Ctrl/⌘ held while it is off, hovering the canvas outlines the layer (or group, per the
 //! Auto-Select target) that a click there would pick. The hit test is the click's own
 //! (`pick_cmds::auto_select_target`), so a type layer is outlined anywhere inside its text, as it
 //! is picked there (#2591). The answer is cached per document revision and pointer pixel: a
@@ -114,7 +114,8 @@ pub(crate) fn draw(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXf
     }
     let prev_canvas_hover = app.canvas_hover_layer;
     let (mods, pressed) = painter.ctx().input(|i| (i.modifiers, i.pointer.any_down()));
-    let command = crate::workspace_ui::sticky_mods(app, mods).command;
+    let mods = crate::workspace_ui::sticky_mods(app, mods);
+    let command = mods.command || mods.ctrl;
     let at = hover.map(|p| xf.to_doc(p));
     let outline_rect = active_outline(app, at, command, pressed);
     if app.canvas_hover_layer != prev_canvas_hover {
