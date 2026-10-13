@@ -1471,3 +1471,32 @@ fn an_aliased_stroke_at_partial_opacity_is_one_flat_colour() {
         assert_eq!(s.rgba(x, 5), first, "pixel {x} of the Pencil line");
     }
 }
+
+#[test]
+fn sampled_stroke_preview_clones_share_large_tip_settings() {
+    use std::sync::Arc;
+    use crate::dynamics::{DabBuilder, DualBuilder};
+
+    // A large sampled tip is not copied once per motion event for the generator,
+    // dual brush, and rasterizer that render the finishing stroke preview (#4534).
+    let mut b = brush();
+    b.tip = TipShape::Sampled(GrayTile::from_fn(512, 512, |x, y| ((x ^ y) & 255) as f32 / 255.0));
+    b.size = 128.0;
+    b.dual_brush.enabled = true;
+    let primary = DabBuilder::new(&b);
+    let secondary = DualBuilder::new(&b);
+    let raster = BrushContext::new(&b);
+    let (primary_copy, secondary_copy, raster_copy) = (primary.clone(), secondary.clone(), raster.clone());
+    assert!(Arc::ptr_eq(&primary.brush, &primary_copy.brush));
+    assert!(Arc::ptr_eq(&secondary.brush, &secondary_copy.brush));
+    assert!(Arc::ptr_eq(&raster.brush, &raster_copy.brush));
+
+    // The copies are read-only snapshots of a stroke's settings and remain
+    // independent of subsequent edits to the source BrushSettings.
+    let before = primary_copy.brush.size;
+    b.size = 32.0;
+    assert_eq!(primary.brush.size, before);
+    assert_eq!(primary_copy.brush.size, before);
+    assert_eq!(secondary_copy.brush.tip.bitmap().unwrap().width, 512);
+    assert_eq!(raster_copy.brush.tip.bitmap().unwrap().height, 512);
+}
