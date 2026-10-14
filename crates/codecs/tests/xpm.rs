@@ -40,7 +40,8 @@ fn rejects_truncation_unsupported_colours_and_unknown_keys() {
     for bytes in [
         &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c None\" };"[..],
         &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c NotAColor\", \"a\" };"[..],
-        &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c #aé\", \"a\" };"[..],
+        &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c #a\xC3\xA9\", \"a\" };"[..],
+        &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c #+f0000\", \"a\" };"[..],
         &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c black\", \"z\" };"[..],
         &b"/* XPM */\nstatic char *i[] = { \"1 1 1 1\", \"a c black\", \"aa\" };"[..],
         &b"/* XPM */\nstatic char *i[] = { \"1 1 2 1\", \"a c black\", \"a c white\", \"a\" };"[..],
@@ -64,6 +65,53 @@ static char *i[] = {
 };"#;
     let image = decode(xpm).unwrap();
     assert_eq!(image.data(), &[211, 211, 211, 255, 0, 0, 139, 255, 173, 216, 230, 255, 0, 255, 0, 255]);
+}
+
+#[test]
+fn named_x11_colors_use_x11_not_css_values() {
+    let bytes = br#"/* XPM */
+static char *icon[] = {
+"6 1 6 1",
+"a c gray",
+"b c maroon",
+"c c purple",
+"d c LightGoldenrodYellow",
+"e c DarkSlateGray4",
+"f c Ghost White",
+"abcdef"
+};"#;
+    let image = decode(bytes).unwrap();
+    assert_eq!(image.data(), &[190, 190, 190, 255, 176, 48, 96, 255, 160, 32, 240, 255, 250, 250, 210, 255, 82, 139, 139, 255, 248, 248, 255, 255,]);
+}
+
+#[test]
+fn xpm2_decodes_crlf_comments_spaces_and_multichar_keys() {
+    let bytes = b"! XPM2\r\n! exported by an icon tool\r\n2 2 3 2\r\n.a c #f00\r\n!_ c None\r\nzz c DarkBlue\r\n.a!_\r\nzz.a\r\n";
+    assert_eq!(detect(bytes), Some(Format::Xpm));
+    let image = decode(bytes).unwrap();
+    assert_eq!(image.dimensions(), (2, 2));
+    assert_eq!(image.data(), &[255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 139, 255, 255, 0, 0, 255]);
+}
+
+#[test]
+fn xpm2_allows_exclamation_as_a_pixel_key_and_preserves_space_keys() {
+    let bytes = b"! XPM2\n2 1 2 1\n! c red\n  c None\n! \n";
+    let image = decode(bytes).unwrap();
+    assert_eq!(image.data(), &[255, 0, 0, 255, 0, 0, 0, 0]);
+}
+
+#[test]
+fn xpm2_malformed_inputs_return_errors() {
+    for bytes in [
+        &b"! XPM2\n1 1 1 1\na c black\n"[..],
+        &b"! XPM2\n1 1 1 1\na c black\nb\n"[..],
+        &b"! XPM2\n1 1 1 1\na c #a\xc3\xa9\na\n"[..],
+        &b"! XPM2 invalid\n1 1 1 1\na c black\na\n"[..],
+        &b"! XPM2\n100000 100000 1 1\na c red\na\n"[..],
+    ] {
+        assert!(decode_as(Format::Xpm, bytes).is_err(), "{bytes:?}");
+    }
+    assert_ne!(detect(b"! XPM23\n1 1 1 1\na c black\na\n"), Some(Format::Xpm));
 }
 
 #[test]

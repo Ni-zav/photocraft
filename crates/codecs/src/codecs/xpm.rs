@@ -1,7 +1,10 @@
-//! XPM3 reader for C-source icon arrays. Supports transparency (None), RGB hex
-//! at 4/8/16 bits per channel, and common X11 colour names. Does not run C code.
+//! X PixMap reader for XPM2 plain-text icons and XPM3 C-source icon arrays.
+//! Supports transparency (None), RGB hex at 4/8/16 bits per channel and
+//! common X11 colour names. Does not execute C code.
 
 use std::collections::HashMap;
+
+mod x11_colors;
 
 use crate::SampleType;
 use crate::error::CodecError;
@@ -66,6 +69,27 @@ fn c_strings(bytes: &[u8]) -> Result<Vec<Vec<u8>>, CodecError> {
     Ok(lines)
 }
 
+/// Extract XPM2's plain-text lines without trimming pixel rows: leading and
+/// trailing spaces can be palette keys, and physical CRLF is not image data.
+fn xpm2_lines(bytes: &[u8]) -> Result<Vec<Vec<u8>>, CodecError> {
+    let mut input = bytes.split(|&b| b == b'\n');
+    let header = input.next().ok_or_else(|| bad("missing XPM2 marker"))?;
+    if header.strip_suffix(b"\r").unwrap_or(header) != b"! XPM2" {
+        return Err(bad("not an XPM2 image"));
+    }
+    let mut lines = Vec::new();
+    for raw in input {
+        let line = raw.strip_suffix(b"\r").unwrap_or(raw);
+        // The header may be preceded by comments and blank lines. After the
+        // header, a leading '!' is allowed as a palette key or pixel value.
+        if lines.is_empty() && (line.is_empty() || line.starts_with(b"!")) {
+            continue;
+        }
+        lines.push(line.to_vec());
+    }
+    Ok(lines)
+}
+
 fn channel(hex: &str) -> Option<u8> {
     let v = u32::from_str_radix(hex, 16).ok()?;
     let max = (1u32 << (hex.len() * 4)) - 1;
@@ -74,44 +98,18 @@ fn channel(hex: &str) -> Option<u8> {
 
 fn named(name: &str) -> Option<[u8; 3]> {
     let s = name.to_ascii_lowercase().replace([' ', '-', '_'], "");
-    if let Some(percent) = s.strip_prefix("gray").or_else(|| s.strip_prefix("grey"))
-        && let Ok(pct) = percent.parse::<u32>()
-        && pct <= 100
-    {
-        let v = ((pct * 255 + 50) / 100) as u8;
-        return Some([v, v, v]);
+    // XPM imports X11 names, whose RGB values differ from CSS for names
+    // such as gray, maroon and purple. Keep these exact rather than guessing.
+    if let Ok(index) = x11_colors::X11_COLORS.binary_search_by_key(&s.as_str(), |(name, _)| *name) {
+        return Some(x11_colors::X11_COLORS[index].1);
     }
+    // Retain useful web color aliases not present in the X11 database.
     Some(match s.as_str() {
-        "black" => [0, 0, 0],
-        "white" => [255, 255, 255],
-        "red" => [255, 0, 0],
-        "green" => [0, 255, 0],
-        "blue" => [0, 0, 255],
-        "yellow" => [255, 255, 0],
-        "cyan" | "aqua" => [0, 255, 255],
-        "magenta" | "fuchsia" => [255, 0, 255],
-        "gray" | "grey" => [128, 128, 128],
         "silver" => [192, 192, 192],
-        "maroon" => [128, 0, 0],
         "olive" => [128, 128, 0],
-        "purple" => [128, 0, 128],
         "teal" => [0, 128, 128],
-        "navy" => [0, 0, 128],
-        "lime" => [0, 255, 0],
-        "orange" => [255, 165, 0],
-        "pink" => [255, 192, 203],
-        "brown" => [165, 42, 42],
-        "lightgray" | "lightgrey" => [211, 211, 211],
-        "darkgray" | "darkgrey" => [169, 169, 169],
-        "darkblue" => [0, 0, 139],
-        "lightblue" => [173, 216, 230],
-        "darkred" => [139, 0, 0],
-        "darkgreen" => [0, 100, 0],
-        "gold" => [255, 215, 0],
-        "ivory" => [255, 255, 240],
-        "beige" => [245, 245, 220],
-        "snow" => [255, 250, 250],
-        "ghostwhite" => [248, 248, 255],
+        "fuchsia" => [255, 0, 255],
+        "navyblue" => [0, 0, 128],
         _ => return None,
     })
 }
@@ -122,7 +120,8 @@ fn color(name: &str) -> Option<[u8; 4]> {
     }
     let rgb = if let Some(hex) = name.strip_prefix('#') {
         // UTF-8 byte lengths can match a supported hex width while slicing would panic.
-        if !hex.is_ascii() {
+        // `from_str_radix` would also take a leading `+`: accept hex digits only.
+        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let digits = match hex.len() {
@@ -140,13 +139,20 @@ fn color(name: &str) -> Option<[u8; 4]> {
 }
 
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
-    if !bytes.starts_with(b"/* XPM */") {
-        return Err(bad("not an XPM3 image"));
-    }
     if bytes.len() > MAX_SOURCE {
         return Err(CodecError::LimitExceeded("XPM source exceeds 256 MiB".into()));
     }
-    let lines = c_strings(bytes)?;
+    let lines = if bytes.starts_with(b"/* XPM */") {
+        c_strings(bytes)?
+    } else if bytes.starts_with(b"! XPM2\n") || bytes.starts_with(b"! XPM2\r\n") {
+        xpm2_lines(bytes)?
+    } else {
+        return Err(bad("not an XPM2/XPM3 image"));
+    };
+    decode_lines(&lines, limits)
+}
+
+fn decode_lines(lines: &[Vec<u8>], limits: &Limits) -> Result<Image, CodecError> {
     let header = lines.first().ok_or_else(|| bad("missing image header"))?;
     let parts = std::str::from_utf8(header).map_err(|_| bad("non-UTF-8 XPM header"))?;
     let mut parts = parts.split_ascii_whitespace();
