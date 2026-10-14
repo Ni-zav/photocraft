@@ -2629,9 +2629,7 @@ pub fn mode_label(doc: &Document) -> &'static str {
 }
 
 fn open_on_empty_double_click(app: &mut PhotocraftApp, ui: &egui::Ui, area: Rect) {
-    if ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)
-        && i.pointer.interact_pos().is_some_and(|p| area.contains(p)))
-    {
+    if ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary) && i.pointer.interact_pos().is_some_and(|p| area.contains(p))) {
         let _ = app.open_dialog_file();
     }
 }
