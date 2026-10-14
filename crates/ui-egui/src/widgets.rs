@@ -1917,6 +1917,7 @@ mod tests {
         use egui::{
             Modifiers, MouseWheelUnit, TouchPhase,
             text::{CCursor, CCursorRange},
+            vec2,
         };
         use egui_kittest::{Harness, kittest::Queryable};
         let mut h = Harness::builder().with_size(vec2(260.0, 120.0)).build_ui_state(
