@@ -420,10 +420,7 @@ fn next_id(f: &Map<String, Value>) -> String {
         .filter_map(|n| n.parse::<u64>().ok())
         .collect();
     let max = used.iter().copied().max().unwrap_or(0);
-    let next = max
-        .checked_add(1)
-        .or_else(|| (1_u64..).find(|n| !used.contains(n)))
-        .unwrap_or(1);
+    let next = max.checked_add(1).or_else(|| (1_u64..).find(|n| !used.contains(n))).unwrap_or(1);
     format!("fx{next}")
 }
 
