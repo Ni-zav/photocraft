@@ -47,6 +47,26 @@ fn free_canvas(h: &Harness<'static, PhotocraftApp>) -> Pos2 {
 }
 
 #[test]
+fn double_clicking_an_empty_workspace_opens_the_file_picker() {
+    for home in [false, true] {
+        let mut h = harness();
+        h.state_mut().services.file_dialog = Some(Box::new(|_, _, _| {}));
+        h.state_mut().session.prefs.edit(|p| p.general.auto_show_home_screen = home);
+        h.state_mut().run("file.close", json!({})).unwrap();
+        h.run_steps(3);
+        assert!(h.state().session.documents().is_empty());
+        let p = pos2(85.0, 160.0); // Outside the Home card, when it is shown.
+        h.event(egui::Event::PointerMoved(p));
+        h.run_steps(1);
+        for pressed in [true, false, true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+            h.run_steps(1);
+        }
+        assert!(h.state().file_dialog.is_some(), "double click must open the file picker (home={home})");
+    }
+}
+
+#[test]
 fn ctrl_plus_zooms_the_canvas_not_the_interface() {
     let mut h = harness();
     let z0 = zoom(&h);
