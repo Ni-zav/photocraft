@@ -12,7 +12,7 @@ fn harness() -> Harness<'static, PhotocraftApp> {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
     app.sync_views();
-    let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).build_ui_state(
+    let mut h = Harness::builder().with_step_dt(1.0 / 60.0).with_size(vec2(1200.0, 800.0)).build_ui_state(
         |ui, app: &mut PhotocraftApp| {
             let ctx = ui.ctx().clone();
             // Fonts set up after the first frame only apply from the next one.
