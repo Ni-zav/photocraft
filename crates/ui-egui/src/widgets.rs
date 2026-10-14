@@ -835,7 +835,7 @@ fn number_edit(
             let caret = egui::TextEdit::load_state(ui.ctx(), id)
                 .and_then(|state| state.cursor.char_range())
                 .filter(|range| range.primary.index == range.secondary.index)
-                .map(|range| range.primary.index);
+                .map(|range| usize::from(range.primary.index));
             if let Some(place) = caret.and_then(|at| wheel_step_at_caret(&displayed, at)) {
                 let next = f64::from(*value) + f64::from(notches) * place;
                 let (min, max) = (f64::from(*range.start()), f64::from(*range.end()));
@@ -907,7 +907,7 @@ fn wheel_notches(ui: &Ui, resp: &Response) -> f32 {
 }
 
 /// [`wheel_notches`] of widget `id` while `hovered`, a notch with Shift counting `shift_notches`.
-fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notches: f32) -> f32 {
+pub(crate) fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notches: f32) -> f32 {
     if !hovered {
         return 0.0;
     }
@@ -1654,21 +1654,12 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
             ui.spacing_mut().item_spacing.x = 6.0;
             let (rect, resp) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::click());
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-            let p = ui.painter();
-            if *on {
-                p.rect_filled(rect, 2.0, t.accent);
-                let a = rect.left_center() + vec2(3.0, 0.5);
-                let b = rect.center_bottom() + vec2(-1.0, -3.5);
-                let c = rect.right_top() + vec2(-3.0, 3.5);
-                p.line_segment([a, b], Stroke::new(1.8, Color32::WHITE));
-                p.line_segment([b, c], Stroke::new(1.8, Color32::WHITE));
-            } else {
-                p.rect_filled(rect, 2.0, t.field);
-                p.rect_stroke(rect, 2.0, Stroke::new(1.5, if resp.hovered() { t.text_dim } else { t.text_faint }), StrokeKind::Inside);
-            }
             let l = ui
                 .add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).selectable(false).sense(Sense::click()))
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
+            // Pressing the label presses the box (#4476).
+            let pressed = resp.is_pointer_button_down_on() || l.is_pointer_button_down_on();
+            check_box(ui.painter(), rect, *on, resp.hovered() || l.hovered(), pressed, &t);
             resp.union(l)
         })
         .inner;
@@ -1677,6 +1668,34 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         resp.mark_changed();
     }
     resp
+}
+
+/// The fill of a check box: the accent when `on`, else the field colour. While it's pressed
+/// (the mouse is down on it or on its label) Photoshop shows that a release will act: an
+/// unchecked box darkens a little and a checked one turns a little less opaque (#4476).
+pub fn check_box_fill(on: bool, pressed: bool, t: &Tokens) -> Color32 {
+    match (on, pressed) {
+        (true, false) => t.accent,
+        (true, true) => t.accent.gamma_multiply(0.75),
+        (false, false) => t.field,
+        (false, true) => t.field.lerp_to_gamma(Color32::BLACK, 0.18),
+    }
+}
+
+/// Paint a check box in `rect`: [`check_box_fill`] with a white tick when `on`, else an
+/// outline that brightens while `hovered` or `pressed`.
+pub fn check_box(p: &egui::Painter, rect: Rect, on: bool, hovered: bool, pressed: bool, t: &Tokens) {
+    p.rect_filled(rect, 2.0, check_box_fill(on, pressed, t));
+    if on {
+        let a = rect.left_center() + vec2(3.0, 0.5);
+        let b = rect.center_bottom() + vec2(-1.0, -3.5);
+        let c = rect.right_top() + vec2(-3.0, 3.5);
+        let tick = Stroke::new(rect.width() * 0.125, Color32::WHITE);
+        p.line_segment([a, b], tick);
+        p.line_segment([b, c], tick);
+    } else {
+        p.rect_stroke(rect, 2.0, Stroke::new(1.5, if hovered || pressed { t.text_dim } else { t.text_faint }), StrokeKind::Inside);
+    }
 }
 
 /// Small chevron for dropdowns (replaces egui's filled triangle).
@@ -1895,17 +1914,22 @@ mod tests {
 
     #[test]
     fn wheel_over_focused_field_changes_selected_decimal_place() {
-        use egui::{MouseWheelUnit, TouchPhase, Modifiers, text::{CCursor, CCursorRange}};
+        use egui::{
+            Modifiers, MouseWheelUnit, TouchPhase,
+            text::{CCursor, CCursorRange},
+        };
         use egui_kittest::{Harness, kittest::Queryable};
         let mut h = Harness::builder().with_size(vec2(260.0, 120.0)).build_ui_state(
-            |ui, value: &mut f32| { super::value_field(ui, value, 0.0..=1000.0, "", 100.0); },
+            |ui, value: &mut f32| {
+                super::value_field(ui, value, 0.0..=1000.0, "", 100.0);
+            },
             123.45,
         );
         h.run();
         let rect = h.get_by_role(egui::accesskit::Role::SpinButton).rect();
         // A hovered but unfocused number must not steal wheel events from its parent.
         h.hover_at(rect.center());
-        h.event(egui::Event::MouseWheel {unit: MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: TouchPhase::Move, modifiers: Modifiers::NONE});
+        h.event(egui::Event::MouseWheel { unit: MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: TouchPhase::Move, modifiers: Modifiers::NONE });
         h.run();
         assert_eq!(*h.state(), 123.45);
         h.get_by_role(egui::accesskit::Role::SpinButton).click();
@@ -1915,7 +1939,7 @@ mod tests {
         state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(1))));
         state.store(&h.ctx, id);
         h.hover_at(rect.center());
-        h.event(egui::Event::MouseWheel {unit: MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: TouchPhase::Move, modifiers: Modifiers::NONE});
+        h.event(egui::Event::MouseWheel { unit: MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: TouchPhase::Move, modifiers: Modifiers::NONE });
         h.run();
         assert_eq!(*h.state(), 133.45);
     }
