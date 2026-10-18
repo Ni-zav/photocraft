@@ -1203,6 +1203,52 @@ mod tests {
     }
 
     #[test]
+    fn queued_remove_cannot_commit_after_layer_or_channel_target_changes() {
+        for change in ["layer", "color", "mask"] {
+            let mut app = app();
+            app.run("layer.new.layer", json!({"name": "Original"})).unwrap();
+            if change == "color" {
+                app.run("channel.target", json!({"channel": "red"})).unwrap();
+            }
+            app.ui.tool = Tool::Remove;
+            app.ui.tool_options.remove_after_each_stroke = false;
+            remove_pending_add(&mut app, &[[12.0, 10.0, 1.0], [16.0, 12.0, 1.0]]);
+            assert_eq!(app.remove_pending.len(), 1);
+            assert!(remove_pending_live(&mut app));
+
+            match change {
+                "layer" => { app.run("layer.new.layer", json!({"name": "Other"})).unwrap(); }
+                "color" => { app.run("channel.target", json!({"channel": "blue"})).unwrap(); }
+                "mask" => {
+                    app.run("layer.layerMask.revealAll", json!({})).unwrap();
+                    app.ui.mask_target = true;
+                }
+                _ => unreachable!(),
+            }
+
+            let journal = app.session.journal.len();
+            assert!(!remove_pending_commit(&mut app), "{change}: Enter must not retarget a queued stroke");
+            assert_eq!(app.session.journal.len(), journal, "{change}: no Remove command ran");
+            assert!(app.remove_pending.is_empty() && app.remove_trail.is_none(), "{change}: queue cleared");
+            assert!(app.remove_pending_target.is_none());
+        }
+    }
+
+    #[test]
+    fn queued_remove_starts_a_new_queue_after_target_switch() {
+        let mut app = app();
+        app.run("layer.new.layer", json!({"name": "Original"})).unwrap();
+        app.ui.tool = Tool::Remove;
+        app.ui.tool_options.remove_after_each_stroke = false;
+        remove_pending_add(&mut app, &[[12.0, 10.0, 1.0], [16.0, 12.0, 1.0]]);
+        app.run("layer.new.layer", json!({"name": "Other"})).unwrap();
+        remove_pending_add(&mut app, &[[40.0, 10.0, 1.0], [44.0, 12.0, 1.0]]);
+        assert_eq!(app.remove_pending.len(), 1, "strokes from different layers must not be combined");
+        assert_eq!(app.remove_pending[0][0][0], 40.0);
+        assert!(remove_pending_live(&mut app));
+    }
+
+    #[test]
     fn remove_strokes_waiting_are_dropped_when_the_tool_changes() {
         let mut app = app();
         app.ui.tool = Tool::Remove;
