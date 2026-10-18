@@ -68,9 +68,7 @@ pub(crate) fn after_command(s: &mut Session, id: &str) {
             let now = st.doc.layer(layer);
             let was = prev.layer(layer);
             let surf_eq = |a: Option<&Surface>, b: Option<&Surface>| match (a, b) {
-                (Some(a), Some(b)) => {
-                    a.format() == b.format() && a.default_pixel() == b.default_pixel() && crate_fingerprint(a) == crate_fingerprint(b)
-                }
+                (Some(a), Some(b)) => a.format() == b.format() && a.default_pixel() == b.default_pixel() && crate_fingerprint(a) == crate_fingerprint(b),
                 (None, None) => true,
                 _ => false,
             };
@@ -218,11 +216,7 @@ fn fade(s: &mut Session, p: &Value) -> Result<Value> {
     }
     // A uniform mask can change every pixel without storing a single tile. In that case
     // the content bounds are empty, but Fade must still blend across the canvas.
-    let area = if before.default_pixel() != now.default_pixel() {
-        st.doc.bounds()
-    } else {
-        before.content_bounds().union(&now.content_bounds())
-    };
+    let area = if before.default_pixel() != now.default_pixel() { st.doc.bounds() } else { before.content_bounds().union(&now.content_bounds()) };
     let label = format!("Fade {}", src.label);
     s.edit(&label, |doc, _| {
         let l = doc.layer_mut(src.layer).ok_or(EngineError::NoLayer(src.layer))?;
