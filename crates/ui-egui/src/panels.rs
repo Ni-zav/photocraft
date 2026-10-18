@@ -2091,6 +2091,25 @@ fn empty(ui: &mut egui::Ui, s: &str) {
 /// A selected solid-colour shape takes its Color panel colour from its fill, not from the
 /// previous drawing tool's foreground. Other layer types keep the normal foreground colour.
 fn selected_shape_fill(app: &PhotocraftApp) -> Option<(LayerId, [f32; 4])> {
+    if !matches!(
+        app.ui.tool,
+        Tool::Rectangle
+            | Tool::EllipseShape
+            | Tool::Triangle
+            | Tool::Polygon
+            | Tool::Line
+            | Tool::CustomShape
+            | Tool::Pen
+            | Tool::FreeformPen
+            | Tool::CurvaturePen
+            | Tool::AddAnchorPoint
+            | Tool::DeleteAnchorPoint
+            | Tool::ConvertPoint
+            | Tool::PathSelection
+            | Tool::DirectSelection
+    ) {
+        return None;
+    }
     let st = app.session.active()?;
     let id = st.active_layer?;
     let layer = st.doc.layer(id)?;
@@ -2116,11 +2135,14 @@ fn set_color_panel_foreground(app: &mut PhotocraftApp, color: [f32; 4], gesture:
     });
     app.session.tools.foreground = color;
     if let Some((id, alpha)) = shape
-        && let Err(err) = app.run("shape.edit", json!({
-            "layer": id.0,
-            "fill": [color[0], color[1], color[2], alpha],
-            "coalesce": format!("color-panel-shape-{}-{gesture}", id.0),
-        }))
+        && let Err(err) = app.run(
+            "shape.edit",
+            json!({
+                "layer": id.0,
+                "fill": [color[0], color[1], color[2], alpha],
+                "coalesce": format!("color-panel-shape-{}-{gesture}", id.0),
+            }),
+        )
     {
         app.ui.status = err;
         app.ui.status_error = true;
@@ -4197,15 +4219,22 @@ mod color_tests {
         assert!((ours.h * 360.0 - dialog[0]).abs() < 0.5 && (ours.s - dialog[1]).abs() < 1e-3 && (ours.v - dialog[2]).abs() < 1e-3, "{ours:?} vs {dialog:?}");
     }
 
-
     #[test]
     fn selected_shape_fill_stays_in_sync_with_color_panel_edits() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 80, "height": 80})).unwrap();
-        let id = app.run("shape.create", json!({
-            "kind": "rect", "rect": [10, 10, 40, 30], "fill": "#ff0000"
-        })).unwrap()["layer"].as_u64().unwrap();
+        let id = app
+            .run(
+                "shape.create",
+                json!({
+                    "kind": "rect", "rect": [10, 10, 40, 30], "fill": "#ff0000"
+                }),
+            )
+            .unwrap()["layer"]
+            .as_u64()
+            .unwrap();
 
+        app.ui.tool = Tool::Rectangle;
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 0, 0]);
         // A Properties/toolbar shape.edit is reflected even when the toolbox stays red.
         app.run("shape.edit", json!({"layer": id, "fill": "#00ff00"})).unwrap();
@@ -4216,6 +4245,15 @@ mod color_tests {
         assert_eq!(srgb_bytes(app.session.tools.foreground), [0, 0, 255]);
         app.run("edit.undo", json!({})).unwrap();
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 255, 0]);
+        app.run("edit.redo", json!({})).unwrap();
+        assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255]);
+        for tool in [Tool::Brush, Tool::Move, Tool::Eyedropper, Tool::Type] {
+            app.ui.tool = tool;
+            set_color_panel_foreground(&mut app, [1.0, 1.0, 0.0, 1.0], 2);
+            assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 255, 0]);
+            app.ui.tool = Tool::Rectangle;
+            assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255], "{tool:?} must not recolour shapes");
+        }
     }
 
     #[test]
