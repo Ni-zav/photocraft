@@ -1549,6 +1549,43 @@ mod tests {
     }
 
     #[test]
+    fn dialog_worker_failure_stops_action_before_following_steps() {
+        for (background, locked) in [(true, true), (false, true), (true, false)] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width": 8, "height": 6, "background": "#203040"})).unwrap();
+            let mut action = Action::new(
+                "Worker Result",
+                vec![
+                    ("layer.setProps".into(), json!({"name": "Prefix", "locks": {"pixels": locked}})),
+                    ("filter.blur.gaussianBlur".into(), json!({"radius": 1.5})),
+                    ("layer.new.layer".into(), json!({"name": "Suffix"})),
+                ],
+            );
+            action.dialogs.insert(1);
+            app.session.actions.list.push(action);
+            app.background_jobs = background;
+            let paused = play(&mut app, &json!({"action": "Worker Result"})).unwrap();
+            let dialog = paused["paused"]["dialog"].as_u64().unwrap();
+            let result = crate::dialogs::confirm(&mut app, dialog);
+            let suffix = app.session.active().unwrap().doc.walk().iter().any(|(_, _, layer)| layer.name == "Suffix");
+
+            assert_eq!(suffix, !locked, "background={background}, locked={locked}: {result:?}");
+            if locked && background {
+                assert!(result.is_ok(), "the dialog command admitted a worker: {result:?}");
+                assert!(app.ui.status_error, "the action must report the worker failure");
+                assert!(app.ui.status.contains("locked"), "{}", app.ui.status);
+                assert_eq!(app.session.jobs_with_recent()[0].state, "failed");
+            } else if locked {
+                assert!(result.is_err(), "the foreground command rejects the locked layer");
+            } else {
+                assert!(result.is_ok(), "the successful worker lets the action continue: {result:?}");
+            }
+            assert_eq!(app.session.actions.playing, 0);
+            assert!(app.session.actions.playback_stack.is_empty());
+        }
+    }
+
+    #[test]
     fn a_dialog_toggled_step_pauses_playback_and_resumes_on_ok() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 16, "height": 16})).unwrap();
