@@ -166,15 +166,36 @@ fn remove_params(o: &crate::state::ToolOptions) -> Value {
     json!({"sampleAllLayers": o.sample_all_layers, "newLayer": o.remove_new_layer})
 }
 
+/// The selection a queued Remove stroke was drawn against. A later selection must not
+/// redirect the queued strokes to a different layer or colour component.
+#[derive(Clone, PartialEq)]
+pub(crate) struct RemoveTarget {
+    doc: photocraft_doc::DocId,
+    layer: Option<photocraft_doc::LayerId>,
+    channel: photocraft_engine::channel_cmds::ChannelTarget,
+    paint: Value,
+}
+
+fn remove_target(app: &PhotocraftApp) -> Option<RemoveTarget> {
+    let st = app.session.active()?;
+    Some(RemoveTarget {
+        doc: st.doc.id,
+        layer: st.active_layer,
+        channel: st.channel_view.target,
+        paint: crate::canvas::paint_target(app),
+    })
+}
+
 /// Remove after each stroke off: a finished stroke waits with the others, tinted on the canvas,
 /// until ↩ or the options bar's ✓ applies them all as one removal (Esc or ⊘ drops them).
 pub fn remove_pending_add(app: &mut PhotocraftApp, points: &[[f64; 3]]) {
+    let Some(target) = remove_target(app) else { return };
     let Some(st) = app.session.active() else { return };
-    let (doc, size) = (st.doc.id, [st.doc.size.width, st.doc.size.height]);
-    if app.remove_pending_doc != Some(doc) {
+    let size = [st.doc.size.width, st.doc.size.height];
+    if app.remove_pending_target.as_ref() != Some(&target) {
         app.remove_pending.clear();
         app.remove_trail = None;
-        app.remove_pending_doc = Some(doc);
+        app.remove_pending_target = Some(target);
     }
     let diameter = app.session.tools.brush.size;
     app.remove_trail.get_or_insert_with(|| crate::stroke_trail::Trail::new(size)).feed_stroke(points, diameter);
@@ -185,12 +206,13 @@ pub fn remove_pending_add(app: &mut PhotocraftApp, points: &[[f64; 3]]) {
 
 /// Apply the waiting strokes as one removal (one job, one undo step). False when none wait.
 pub fn remove_pending_commit(app: &mut PhotocraftApp) -> bool {
-    if app.remove_pending.is_empty() {
+    // Enter can arrive before the next canvas frame checks pending-stroke lifetime.
+    if !remove_pending_live(app) {
         return false;
     }
     let strokes = std::mem::take(&mut app.remove_pending);
     app.remove_trail = None;
-    app.remove_pending_doc = None;
+    app.remove_pending_target = None;
     let mut p = remove_params(&app.ui.tool_options);
     p["strokes"] = json!(strokes);
     p["target"] = crate::canvas::paint_target(app);
@@ -209,7 +231,7 @@ pub fn remove_pending_cancel(app: &mut PhotocraftApp) -> bool {
     }
     app.remove_pending.clear();
     app.remove_trail = None;
-    app.remove_pending_doc = None;
+    app.remove_pending_target = None;
     app.ui.status.clear();
     app.ui.status_error = false;
     true
@@ -221,8 +243,7 @@ pub fn remove_pending_live(app: &mut PhotocraftApp) -> bool {
     if app.remove_pending.is_empty() {
         return false;
     }
-    let doc = app.session.active().map(|st| st.doc.id);
-    if app.ui.tool == Tool::Remove && doc.is_some() && app.remove_pending_doc == doc {
+    if app.ui.tool == Tool::Remove && remove_target(app).as_ref() == app.remove_pending_target.as_ref() {
         return true;
     }
     remove_pending_cancel(app);
