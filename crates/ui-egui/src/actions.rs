@@ -441,7 +441,12 @@ pub fn resume(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) 
     if let Some(doc) = app.session.active().map(|d| d.doc.id)
         && let Some(job) = app.session.job_on(doc)
     {
-        let _ = app.session.wait_job(job.id);
+        if let Err(e) = app.session.wait_job(job.id) {
+            let template = "Action playback failed: {error}";
+            app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e.to_string())]);
+            app.ui.status_error = true;
+            return;
+        }
     }
     let params = json!({"action": r.get("action").cloned().unwrap_or(Value::Null), "from": r.get("from").cloned().unwrap_or(Value::Null)});
     match play(app, &params) {
