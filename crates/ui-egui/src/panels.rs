@@ -4524,10 +4524,12 @@ mod color_tests {
         app.ui.tool = Tool::Rectangle;
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 0, 0]);
         // A Properties/toolbar shape.edit is reflected even when the toolbox stays red.
-        app.run("shape.edit", json!({"layer": id, "fill": "#00ff00"})).unwrap();
+        app.run("shape.edit", json!({"layer": id, "fill": [0.0, 1.0, 0.0, 0.5]})).unwrap();
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 255, 0]);
 
+        set_color_panel_foreground(&mut app, [1.0, 0.0, 1.0, 1.0], 1);
         set_color_panel_foreground(&mut app, [0.0, 0.0, 1.0, 1.0], 1);
+        assert_eq!(selected_shape_fill(&app).unwrap().1[3], 0.5);
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255]);
         assert_eq!(srgb_bytes(app.session.tools.foreground), [0, 0, 255]);
         app.run("edit.undo", json!({})).unwrap();
@@ -4541,6 +4543,9 @@ mod color_tests {
             app.ui.tool = Tool::Rectangle;
             assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255], "{tool:?} must not recolour shapes");
         }
+        app.ui.tool = Tool::PathSelection;
+        set_color_panel_foreground(&mut app, [1.0, 0.0, 0.0, 1.0], 3);
+        assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 0, 0]);
     }
 
     #[test]
