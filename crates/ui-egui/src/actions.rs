@@ -435,8 +435,8 @@ pub fn insert_stop_confirm(app: &mut PhotocraftApp, fields: &serde_json::Map<Str
 pub const RESUME: &str = "__resumeAction";
 
 /// A step dialog confirmed: continue the action after it (`dialogs::confirm` calls this).
-pub fn resume(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) {
-    let Some(r) = fields.get(RESUME) else { return };
+pub fn resume(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) -> Result<(), String> {
+    let Some(r) = fields.get(RESUME) else { return Ok(()) };
     // The dialog's command may run as a background job; the next step needs its result.
     if let Some(doc) = app.session.active().map(|d| d.doc.id)
         && let Some(job) = app.session.job_on(doc)
@@ -445,16 +445,20 @@ pub fn resume(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) 
             let template = "Action playback failed: {error}";
             app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e.to_string())]);
             app.ui.status_error = true;
-            return;
+            return Err(e.to_string());
         }
     }
     let params = json!({"action": r.get("action").cloned().unwrap_or(Value::Null), "from": r.get("from").cloned().unwrap_or(Value::Null)});
     match play(app, &params) {
-        Ok(v) => report_play(app, &v),
+        Ok(v) => {
+            report_play(app, &v);
+            Ok(())
+        }
         Err(e) => {
             let template = "Action playback failed: {error}";
             app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
             app.ui.status_error = true;
+            Err(e)
         }
     }
 }
@@ -1571,7 +1575,7 @@ mod tests {
 
             assert_eq!(suffix, !locked, "background={background}, locked={locked}: {result:?}");
             if locked && background {
-                assert!(result.is_ok(), "the dialog command admitted a worker: {result:?}");
+                assert!(result.as_ref().is_err_and(|e| e.contains("locked")), "failed worker must fail the dialog confirmation: {result:?}");
                 assert!(app.ui.status_error, "the action must report the worker failure");
                 assert!(app.ui.status.contains("locked"), "{}", app.ui.status);
                 assert_eq!(app.session.jobs_with_recent()[0].state, "failed");
