@@ -178,12 +178,7 @@ pub(crate) struct RemoveTarget {
 
 fn remove_target(app: &PhotocraftApp) -> Option<RemoveTarget> {
     let st = app.session.active()?;
-    Some(RemoveTarget {
-        doc: st.doc.id,
-        layer: st.active_layer,
-        channel: st.channel_view.target,
-        paint: crate::canvas::paint_target(app),
-    })
+    Some(RemoveTarget { doc: st.doc.id, layer: st.active_layer, channel: st.channel_view.target, paint: crate::canvas::paint_target(app) })
 }
 
 /// Remove after each stroke off: a finished stroke waits with the others, tinted on the canvas,
@@ -1217,13 +1212,16 @@ mod tests {
             assert!(remove_pending_live(&mut app));
 
             match change {
-                "layer" => { app.run("layer.new.layer", json!({"name": "Other"})).unwrap(); }
-                "color" => { app.run("channel.target", json!({"channel": "blue"})).unwrap(); }
-                "mask" => {
+                "layer" => {
+                    app.run("layer.new.layer", json!({"name": "Other"})).unwrap();
+                }
+                "color" => {
+                    app.run("channel.target", json!({"channel": "blue"})).unwrap();
+                }
+                _ => {
                     app.run("layer.layerMask.revealAll", json!({})).unwrap();
                     app.ui.mask_target = true;
                 }
-                _ => unreachable!(),
             }
 
             let journal = app.session.journal.len();
