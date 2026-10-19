@@ -364,7 +364,7 @@ fn serve_tcp_until_idle(
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted) => {}
             Err(e) => return Err(AutomationError::Io(e.to_string())),
         }
     }
