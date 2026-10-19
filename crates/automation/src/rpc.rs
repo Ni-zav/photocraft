@@ -833,6 +833,7 @@ mod tests {
 
     #[test]
     fn idle_tcp_daemon_releases_its_port_but_keeps_active_clients() {
+        use std::io::BufReader;
         const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let h = Arc::new(Mutex::new(Headless::new()));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -842,10 +843,20 @@ mod tests {
             done_tx.send(result).unwrap();
         });
         let addr = ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let client = std::net::TcpStream::connect(addr).unwrap();
+        let mut client = std::net::TcpStream::connect(addr).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        writeln!(client, r#"{{"id":"auth","method":"auth","params":{{"token":"{TOKEN}"}}}}"#).unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let auth: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(auth["result"]["authenticated"], true);
         // The port stays owned well past the idle limit while a client is connected.
-        std::thread::sleep(Duration::from_millis(450));
-        assert!(done_rx.try_recv().is_err(), "daemon exited with a live client");
+        assert!(
+            matches!(done_rx.recv_timeout(Duration::from_millis(450)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+            "daemon exited with a live client"
+        );
+        drop(reader);
         drop(client);
         assert!(done_rx.recv_timeout(Duration::from_secs(3)).unwrap().is_ok(), "idle daemon did not exit cleanly");
         server.join().unwrap();
