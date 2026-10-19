@@ -2305,6 +2305,10 @@ fn selected_shape_fill(app: &PhotocraftApp) -> Option<(LayerId, [f32; 4])> {
     }
     let st = app.session.active()?;
     let id = st.active_layer?;
+    let locks = st.doc.effective_locks(id);
+    if locks.all || locks.pixels {
+        return None;
+    }
     let layer = st.doc.layer(id)?;
     let LayerContent::Shape(shape) = &layer.content else { return None };
     let Some(photocraft_doc::Fill::Solid(fill)) = shape.fill.as_ref() else { return None };
@@ -2318,14 +2322,8 @@ fn color_panel_foreground(app: &PhotocraftApp) -> [f32; 4] {
 
 /// Apply a Color panel edit to the selected solid shape as well as the toolbox foreground.
 /// The shape keeps its existing alpha; consecutive slider/field drag ticks share an undo step.
-fn set_color_panel_foreground(app: &mut PhotocraftApp, color: [f32; 4], gesture: u64) {
-    let shape = selected_shape_fill(app).and_then(|(id, fill)| {
-        let locked = app.session.active().is_some_and(|st| {
-            let locks = st.doc.effective_locks(id);
-            locks.all || locks.pixels
-        });
-        (!locked).then_some((id, fill[3]))
-    });
+fn set_color_panel_foreground(app: &mut PhotocraftApp, color: [f32; 4], gesture: &str) {
+    let shape = selected_shape_fill(app).map(|(id, fill)| (id, fill[3]));
     app.session.tools.foreground = color;
     if let Some((id, alpha)) = shape
         && let Err(err) = app.run(
@@ -2353,6 +2351,7 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Hue, Saturation and Brightness sliders for the foreground colour.
 fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let gesture = crate::vector_ui::paint_gesture(ui, egui::Id::new("color-panel-fill-gesture"));
     let fg = color_panel_foreground(app);
     // Keep the last edited HSB while it still gives the foreground: black and greys have no hue or
     // saturation of their own, so recomputing them from RGB would reset what was just typed to 0.
@@ -2375,8 +2374,9 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Only an edit counts: the h/s/v round trip isn't exact, so comparing values would rewrite
     // the foreground (and recolour selected type) every frame.
     if changed {
-        let gesture = crate::vector_ui::paint_gesture(ui, ui.id().with("color-panel-fill"));
-        set_color_panel_foreground(app, hsva_srgb(hsva), gesture);
+        let gesture =
+            if ui.input(|i| i.pointer.any_down()) { format!("sliders-{gesture}") } else { format!("sliders-keyboard-{}", ui.ctx().cumulative_pass_nr()) };
+        set_color_panel_foreground(app, hsva_srgb(hsva), &gesture);
         ui.data_mut(|d| d.insert_temp(key, hsva));
     }
 }
@@ -3886,6 +3886,7 @@ fn field_hsva(mut hsva: egui::ecolor::Hsva, remembered: (f32, f32)) -> egui::eco
 
 /// Photoshop Color panel: saturation/brightness field + hue strip, drawn as shaded meshes.
 fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let gesture = crate::vector_ui::paint_gesture(ui, egui::Id::new("color-panel-fill-gesture"));
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
     let key = egui::Id::new(("color-field-hue", bg_active));
@@ -3965,8 +3966,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if bg_active {
                 app.session.tools.background = hsva_srgb(hsva);
             } else {
-                let gesture = crate::vector_ui::paint_gesture(ui, ui.id().with("color-panel-fill"));
-                set_color_panel_foreground(app, hsva_srgb(hsva), gesture);
+                set_color_panel_foreground(app, hsva_srgb(hsva), &format!("field-{gesture}"));
             }
             ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
@@ -3978,8 +3978,12 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if bg_active {
                 app.session.tools.background = c;
             } else {
-                let gesture = crate::vector_ui::paint_gesture(ui, ui.id().with("color-panel-fill"));
-                set_color_panel_foreground(app, c, gesture);
+                let gesture = if ui.input(|i| i.pointer.any_down()) {
+                    format!("readout-{gesture}")
+                } else {
+                    format!("readout-keyboard-{}", ui.ctx().cumulative_pass_nr())
+                };
+                set_color_panel_foreground(app, c, &gesture);
             }
             // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
             // it, so a later black lands on the corner it was last dragged to (#3228).
@@ -4527,8 +4531,8 @@ mod color_tests {
         app.run("shape.edit", json!({"layer": id, "fill": [0.0, 1.0, 0.0, 0.5]})).unwrap();
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 255, 0]);
 
-        set_color_panel_foreground(&mut app, [1.0, 0.0, 1.0, 1.0], 1);
-        set_color_panel_foreground(&mut app, [0.0, 0.0, 1.0, 1.0], 1);
+        set_color_panel_foreground(&mut app, [1.0, 0.0, 1.0, 1.0], "1");
+        set_color_panel_foreground(&mut app, [0.0, 0.0, 1.0, 1.0], "1");
         assert_eq!(selected_shape_fill(&app).unwrap().1[3], 0.5);
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255]);
         assert_eq!(srgb_bytes(app.session.tools.foreground), [0, 0, 255]);
@@ -4538,14 +4542,58 @@ mod color_tests {
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255]);
         for tool in [Tool::Brush, Tool::Move, Tool::Eyedropper, Tool::Type] {
             app.ui.tool = tool;
-            set_color_panel_foreground(&mut app, [1.0, 1.0, 0.0, 1.0], 2);
+            set_color_panel_foreground(&mut app, [1.0, 1.0, 0.0, 1.0], "2");
             assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 255, 0]);
             app.ui.tool = Tool::Rectangle;
             assert_eq!(srgb_bytes(color_panel_foreground(&app)), [0, 0, 255], "{tool:?} must not recolour shapes");
         }
         app.ui.tool = Tool::PathSelection;
-        set_color_panel_foreground(&mut app, [1.0, 0.0, 0.0, 1.0], 3);
+        set_color_panel_foreground(&mut app, [1.0, 0.0, 0.0, 1.0], "3");
         assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 0, 0]);
+    }
+
+    #[test]
+    fn locked_shape_color_panel_edits_only_the_foreground() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 80, "height": 80})).unwrap();
+        let id = app.run("shape.create", json!({"kind": "rect", "rect": [10, 10, 40, 30], "fill": "#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+        app.ui.tool = Tool::Rectangle;
+        for lock in ["all", "pixels"] {
+            app.run("layer.setProps", json!({"layer": id, "locks": {lock: true}})).unwrap();
+            set_color_panel_foreground(&mut app, [0.0, 1.0, 0.0, 1.0], "locked");
+            assert!(selected_shape_fill(&app).is_none());
+            assert_eq!(color_panel_foreground(&app), app.session.tools.foreground);
+            app.run("layer.setProps", json!({"layer": id, "locks": {lock: false}})).unwrap();
+            assert_eq!(srgb_bytes(color_panel_foreground(&app)), [255, 0, 0]);
+        }
+    }
+
+    #[test]
+    fn separate_color_field_edits_have_separate_undo_steps() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 80, "height": 80})).unwrap();
+        app.run("shape.create", json!({"kind": "rect", "rect": [10, 10, 40, 30], "fill": "#ff0000"})).unwrap();
+        app.ui.tool = Tool::Rectangle;
+        let mut h = field_harness(app);
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        click(&mut h, min + vec2(100.0, 30.0));
+        let first = srgb_bytes(color_panel_foreground(h.state()));
+        click(&mut h, min + vec2(220.0, 80.0));
+        assert_ne!(srgb_bytes(color_panel_foreground(h.state())), first);
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(srgb_bytes(color_panel_foreground(h.state())), first);
+        for text in ["00ff00", "0000ff"] {
+            h.get_by_role(egui::accesskit::Role::TextInput).click();
+            h.run_steps(1);
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+            h.run_steps(1);
+            h.event(egui::Event::Text(text.into()));
+            h.run_steps(1);
+        }
+        assert_eq!(srgb_bytes(color_panel_foreground(h.state())), [0, 0, 255]);
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(srgb_bytes(color_panel_foreground(h.state())), [0, 255, 0]);
     }
 
     #[test]
