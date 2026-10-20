@@ -629,6 +629,12 @@ mod tests {
     }
 
     #[test]
+    fn russian_home_new_document_label_is_translated() {
+        let ru = Lang::from_code("ru").expect("ru registered");
+        assert_eq!(tr(ru, "New document…"), "Новый документ…");
+    }
+
+    #[test]
     fn russian_plural_rules() {
         let ru = || Lang::from_code("ru").expect("ru registered");
         assert_eq!(trn(ru(), 1, "{n} item", "{n} items"), "1 элемент");
