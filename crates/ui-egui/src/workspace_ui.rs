@@ -35,6 +35,10 @@ pub struct ShellUi {
     pub dialog: Option<(String, Map<String, Value>)>,
 }
 
+/// Menu id prefix for user-defined workspaces. The remainder is the exact saved name.
+/// Unlike presets, these commands are created dynamically from preferences.
+pub(crate) const SAVED_WORKSPACE_PREFIX: &str = "window.workspace.saved.";
+
 const IDS: [&str; 7] = [
     "window.panel.modifierKeys",
     "window.workspace.newWorkspace",
@@ -47,10 +51,13 @@ const IDS: [&str; 7] = [
 
 /// Menu ids handled here (live menu items).
 pub fn handles(id: &str) -> bool {
-    IDS.contains(&id)
+    IDS.contains(&id) || id.strip_prefix(SAVED_WORKSPACE_PREFIX).is_some_and(|name| !name.is_empty())
 }
 
 pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
+    if let Some(name) = id.strip_prefix(SAVED_WORKSPACE_PREFIX) {
+        return Some(app.ui.workspace == name && app.session.prefs().workspaces.contains_key(name));
+    }
     match id {
         "window.panel.modifierKeys" => Some(app.ui.shell.modifier_keys),
         "window.workspace.lockWorkspace" => Some(app.session.prefs().workspace_locked),
@@ -60,6 +67,9 @@ pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
+    if let Some(name) = id.strip_prefix(SAVED_WORKSPACE_PREFIX) {
+        return Some(app.session.prefs().workspaces.contains_key(name));
+    }
     Some(match id {
         "window.workspace.deleteWorkspace" => !app.session.prefs().workspaces.is_empty(),
         "view.thirtyTwoBitPreviewOptions" => app.session.is_enabled(id),
@@ -113,6 +123,9 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
     }
     if !handles(id) {
         return None;
+    }
+    if let Some(name) = id.strip_prefix(SAVED_WORKSPACE_PREFIX) {
+        return Some(select_workspace(app, &json!({"name": name})));
     }
     let s = &mut app.ui.shell;
     Some(match id {

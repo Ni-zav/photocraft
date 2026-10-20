@@ -1007,6 +1007,25 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     if let Some(item) = items.iter_mut().find(|i| i.id == "layer.smartObjects.revealInFinder") {
         item.label = reveal_label().into();
     }
+    // Window › Workspace: saved user layouts should be selectable from the same menu
+    // as the built-in layouts, without inventing a static command for each name.
+    if let Some(after) = items.iter().position(|i| i.id == "window.workspace.motion") {
+        let path = vec!["Window".to_string(), "Workspace".to_string()];
+        for (offset, name) in app.session.prefs().workspaces.keys().enumerate() {
+            items.insert(
+                after + 1 + offset,
+                MenuItem {
+                    id: format!("{}{name}", crate::workspace_ui::SAVED_WORKSPACE_PREFIX),
+                    label: name.clone(),
+                    path: path.clone(),
+                    shortcut: None,
+                    enabled: true,
+                    checked: Some(app.ui.workspace == *name),
+                    color: None,
+                },
+            );
+        }
+    }
     // File › Open Recent: a dynamic submenu of recently opened files (inserted after "Open As…").
     if let Some(after) = items.iter().position(|i| i.id == "file.openAs") {
         let rp: Vec<String> = vec!["File".into(), "Open Recent".into()];
@@ -2052,6 +2071,35 @@ mod tests {
         assert!(items.iter().any(|i| i.id == "window.panel.layers" && i.enabled));
         assert_eq!(items.iter().filter(|i| i.path == ["Window"] && i.label == "Layers").count(), 1);
         assert!(items.iter().any(|i| i.id == "edit.stroke"));
+    }
+
+    #[test]
+    fn saved_workspace_appears_in_window_menu_and_can_be_selected_or_deleted() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let name = "Editing • Layout.v2";
+        app.ui.panels.history = true;
+        invoke(&mut app, &ctx, "window.workspace.newWorkspace", json!({"name": name})).unwrap();
+        let id = format!("{}{name}", crate::workspace_ui::SAVED_WORKSPACE_PREFIX);
+        let menu = menu_items(&app);
+        let row = menu.iter().find(|i| i.id == id).expect("saved workspace should be in the Window menu");
+        assert_eq!(row.label, name);
+        assert_eq!(row.path, ["Window", "Workspace"]);
+        assert_eq!(row.checked, Some(true));
+        assert!(row.enabled);
+
+        invoke(&mut app, &ctx, "window.workspace.essentials", Value::Null).unwrap();
+        app.ui.panels.history = false;
+        assert_eq!(menu_items(&app).iter().find(|i| i.id == id).unwrap().checked, Some(false));
+        let result = invoke(&mut app, &ctx, &id, Value::Null).unwrap();
+        assert_eq!(result["workspace"], name);
+        assert!(app.ui.panels.history, "selecting the saved layout restores its panels");
+        assert_eq!(menu_items(&app).iter().find(|i| i.id == id).unwrap().checked, Some(true));
+
+        invoke(&mut app, &ctx, "window.workspace.essentials", Value::Null).unwrap();
+        invoke(&mut app, &ctx, "window.workspace.deleteWorkspace", json!({"name": name})).unwrap();
+        assert!(!menu_items(&app).iter().any(|i| i.id == id));
+        assert!(invoke(&mut app, &ctx, &id, Value::Null).is_err(), "a deleted workspace cannot be selected");
     }
 
     #[test]
