@@ -753,7 +753,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 if let Some(v) = color_panel {
                     app.ui.color_panel = v;
                 }
-                // Right dock width in points (clamped to the dock's 250..=520 range), applied next frame.
+                // Right dock width in points (minimum 250; maximum follows window space), applied next frame.
                 if let Some(w) = dock_width {
                     crate::panels::request_dock_width(ctx, w as f32);
                 }

@@ -1760,8 +1760,10 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::dock::persist(app, ui.ctx());
 }
 
-/// The dock's width range (points). It is the right dock, on the left in a right-to-left UI.
-pub(crate) const DOCK_WIDTH: std::ops::RangeInclusive<f32> = 250.0..=520.0;
+/// The dock's width range (points). The panel itself limits the upper end to the
+/// available window space; a fixed 520-point ceiling makes multi-column docks cramped.
+/// It is the right dock, on the left in a right-to-left UI.
+pub(crate) const DOCK_WIDTH: std::ops::RangeInclusive<f32> = 250.0..=f32::MAX;
 
 pub(crate) fn dock_width_id() -> egui::Id {
     egui::Id::new("dock-width-request")

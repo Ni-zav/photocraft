@@ -556,18 +556,27 @@ fn legacy_control_updates_authoritative_custom_visibility_and_selection_atomical
 }
 
 #[test]
-fn legacy_dock_width_is_consumed_by_custom_renderer_and_clamped_to_existing_range() {
+fn legacy_dock_width_is_consumed_by_custom_renderer_without_a_fixed_upper_cap() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
     let ctx = h.ctx.clone();
-    for (requested, expected) in [(410.0, 410.0), (900.0, 520.0), (20.0, 250.0)] {
+    for (requested, expected) in [(410.0, 410.0), (900.0, 900.0), (20.0, 250.0)] {
         assert_eq!(control_set(h.state_mut(), &ctx, json!({"dockWidth":requested}))["ok"], true);
         h.run_steps(2);
         let state = egui::containers::panel::PanelState::load(&h.ctx, egui::Id::new("shared-panel-dock")).unwrap();
         assert!((state.outer_rect.width() - expected).abs() < 1.0, "{} / {expected}", state.outer_rect.width());
         assert!(h.ctx.data(|data| data.get_temp::<f32>(crate::panels::dock_width_id())).is_none());
     }
+}
+
+#[test]
+fn dock_width_requests_keep_the_minimum_without_reintroducing_a_520_point_cap() {
+    let ctx = egui::Context::default();
+    crate::panels::request_dock_width(&ctx, 900.0);
+    assert_eq!(ctx.data(|data| data.get_temp::<f32>(crate::panels::dock_width_id())), Some(900.0));
+    crate::panels::request_dock_width(&ctx, 10.0);
+    assert_eq!(ctx.data(|data| data.get_temp::<f32>(crate::panels::dock_width_id())), Some(250.0));
 }
 
 #[test]
