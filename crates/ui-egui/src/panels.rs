@@ -1765,7 +1765,7 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// It is the right dock, on the left in a right-to-left UI.
 pub(crate) const DOCK_WIDTH: std::ops::RangeInclusive<f32> = 250.0..=f32::MAX;
 
-pub(crate) fn dock_width_id() -> egui::Id {
+pub(crate) pub(crate) fn dock_width_id() -> egui::Id {
     egui::Id::new("dock-width-request")
 }
 
