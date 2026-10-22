@@ -47,7 +47,18 @@ impl PhotocraftMcp {
         input: impl tokio::io::AsyncRead + Unpin + Send + 'static,
         output: impl tokio::io::AsyncWrite + Unpin + Send + 'static,
     ) -> Result<(), AutomationError> {
-        self.serve_io_with_idle(input, output, IDLE_TIMEOUT).await
+        // The real CLI process test exercises stdio with its pipe held open.
+        // Only debug binaries honor this short test deadline; release keeps 30 minutes.
+        #[cfg(debug_assertions)]
+        let idle = std::env::var("PHOTOCRAFT_MCP_TEST_IDLE_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|millis| (10..=30 * 60 * 1000).contains(millis))
+            .map(Duration::from_millis)
+            .unwrap_or(IDLE_TIMEOUT);
+        #[cfg(not(debug_assertions))]
+        let idle = IDLE_TIMEOUT;
+        self.serve_io_with_idle(input, output, idle).await
     }
 
     async fn serve_io_with_idle(
