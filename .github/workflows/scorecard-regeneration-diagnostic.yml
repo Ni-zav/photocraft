@@ -1,0 +1,21 @@
+name: Scorecard regeneration diagnostic
+on:
+  push:
+    branches:
+      - chore/scorecard-regen-20261118
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: rustup default stable
+      - name: Generate deterministic scorecard
+        run: cargo xtask scorecard
+      - name: Show exact scorecard diff
+        run: git --no-pager diff -- docs/scorecard.md
