@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - chore/scorecard-regen-20261118
+  pull_request:
+    branches:
+      - fix/4644-defringe-soft-alpha-edge-s20261013b
 
 permissions:
   contents: read
